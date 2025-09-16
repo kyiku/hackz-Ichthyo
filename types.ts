@@ -4,6 +4,7 @@ export enum TileType {
   WALL,
   CARPET_V,
   CARPET_H,
+  EXIT,
 }
 
 export enum Direction {

@@ -7,7 +7,11 @@ import Npc from './Npc';
 import DialogueBox from './DialogueBox';
 import ChatHistory from './ChatHistory';
 
-const Game: React.FC = () => {
+interface GameProps {
+  onReturnToTitle?: () => void;
+}
+
+const Game: React.FC<GameProps> = ({ onReturnToTitle }) => {
     const [playerPosition, setPlayerPosition] = useState<Position>(PLAYER_START_POSITION);
     const [playerDirection, setPlayerDirection] = useState<Direction>(Direction.DOWN);
     const [dialogue, setDialogue] = useState<string[] | null>(null);
@@ -20,6 +24,8 @@ const Game: React.FC = () => {
     const [inBattle, setInBattle] = useState<boolean>(false);
     const [chatHistory, setChatHistory] = useState<string[]>([]);
     const [showChatHistory, setShowChatHistory] = useState<boolean>(false);
+    const [showExitConfirm, setShowExitConfirm] = useState<boolean>(false);
+    const [exitSelected, setExitSelected] = useState<number>(0);
 
     const playerPositionRef = useRef(playerPosition);
     useEffect(() => {
@@ -39,6 +45,12 @@ const Game: React.FC = () => {
         if (movingNpcs.some(npc => npc.position.x === pos.x && npc.position.y === pos.y)) return false;
         return true;
     }, [movingNpcs]);
+
+    const checkExitTile = useCallback((pos: Position): boolean => {
+        if (pos.x < 0 || pos.x >= MAP_WIDTH || pos.y < 0 || pos.y >= MAP_HEIGHT) return false;
+        const tile = MAP_LAYOUT[pos.y][pos.x];
+        return tile === TileType.EXIT;
+    }, []);
 
     const handlePlayerAction = () => {
         setChatHistory(prev => [...prev, `Player: ${playerInput}`]);
@@ -137,6 +149,25 @@ const Game: React.FC = () => {
             setShowChatHistory(prev => !prev);
             return;
         }
+
+        if (showExitConfirm) {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                setExitSelected(prev => prev === 0 ? 1 : 0);
+                e.preventDefault();
+            } else if (e.key === 'Enter' || e.key === ' ') {
+                if (exitSelected === 0 && onReturnToTitle) {
+                    onReturnToTitle();
+                } else {
+                    setShowExitConfirm(false);
+                }
+                e.preventDefault();
+            } else if (e.key === 'Escape') {
+                setShowExitConfirm(false);
+                e.preventDefault();
+            }
+            return;
+        }
+
         if (e.key === 'Escape') {
             if (dialogue) {
                 setDialogue(null);
@@ -174,10 +205,13 @@ const Game: React.FC = () => {
         }
         e.preventDefault();
         setPlayerDirection(newDirection);
-        if (isWalkable(newPosition)) {
+        if (checkExitTile(newPosition)) {
+            setShowExitConfirm(true);
+            setExitSelected(0);
+        } else if (isWalkable(newPosition)) {
             setPlayerPosition(newPosition);
         }
-    }, [playerPosition, playerDirection, dialogue, dialogueIndex, isWalkable, handleInteraction, movingNpcs, callingNpcId]);
+    }, [playerPosition, playerDirection, dialogue, dialogueIndex, isWalkable, checkExitTile, handleInteraction, movingNpcs, callingNpcId, showExitConfirm, exitSelected, onReturnToTitle]);
 
     useEffect(() => {
         const gameLoop = setInterval(() => {
@@ -225,6 +259,37 @@ const Game: React.FC = () => {
             {NPCS.map(npc => (<Npc key={npc.id} position={npc.position} sprite={npc.sprite} />))}
             {movingNpcs.map(npc => (<Player key={npc.id} position={npc.position} direction={Direction.DOWN} color="red" isCalling={npc.id === callingNpcId} />))}
             <Player position={playerPosition} direction={playerDirection} color="blue" />
+
+            {/* 出口確認ダイアログ */}
+            {showExitConfirm && (
+                <div className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
+                    <div className="bg-gray-800 border-4 border-yellow-400 rounded-lg p-6 text-center text-white font-mono">
+                        <h2 className="text-xl text-yellow-400 mb-4">閉店しますか？</h2>
+                        <div className="flex gap-4 justify-center">
+                            <button
+                                className={`px-6 py-2 border-2 rounded ${
+                                    exitSelected === 0
+                                        ? 'border-yellow-400 bg-yellow-400 text-black font-bold'
+                                        : 'border-gray-500 text-gray-300'
+                                }`}
+                            >
+                                はい
+                            </button>
+                            <button
+                                className={`px-6 py-2 border-2 rounded ${
+                                    exitSelected === 1
+                                        ? 'border-yellow-400 bg-yellow-400 text-black font-bold'
+                                        : 'border-gray-500 text-gray-300'
+                                }`}
+                            >
+                                いいえ
+                            </button>
+                        </div>
+                        <p className="text-xs text-gray-400 mt-4">←→キーで選択、ENTERで決定</p>
+                    </div>
+                </div>
+            )}
+
             {dialogue && (
                 <DialogueBox
                     message={dialogue[dialogueIndex]}

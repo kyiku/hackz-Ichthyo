@@ -11,6 +11,10 @@ const App: React.FC = () => {
     setGameStarted(true);
   };
 
+  const handleReturnToTitle = () => {
+    setGameStarted(false);
+  };
+
   if (!gameStarted) {
     return <Title onGameStart={handleGameStart} />;
   }
@@ -29,7 +33,7 @@ const App: React.FC = () => {
 
       <header className="mb-4 text-center">
       </header>
-      <Game />
+      <Game onReturnToTitle={handleReturnToTitle} />
     </div>
   );
 };

@@ -1,0 +1,5 @@
+{
+  "name": "React 2D RPG Game Center",
+  "description": "A 2D RPG-style game center built with React and Tailwind CSS, where users can walk around a tiled map and interact with arcade machines.",
+  "requestFramePermissions": []
+}

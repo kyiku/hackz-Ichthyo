@@ -42,10 +42,7 @@ const Game: React.FC = () => {
 
     const handlePlayerAction = () => {
         setChatHistory(prev => [...prev, `Player: ${playerInput}`]);
-
-        // ★ここからが反撃ロジック！★
         if (playerInput.trim() === "' OR 1=1; --") {
-            // SQLインジェクション成功
             const victoryMessage = ["な…に…！？身体が…データに…ぐあああ！"];
             setDialogue(victoryMessage);
             setChatHistory(prev => [...prev, `SYSTEM: ${victoryMessage[0]}`]);
@@ -53,14 +50,12 @@ const Game: React.FC = () => {
             setInBattle(false);
             setIsPlayerTurn(false);
         } else {
-            // 失敗
             const failureMessage = ["……。", "…何も起きなかった。"];
             setDialogue(failureMessage);
             setChatHistory(prev => [...prev, `SYSTEM: ${failureMessage[0]}`]);
             setDialogueIndex(0);
-            setIsPlayerTurn(false); // プレイヤーのターンを終了して、結果メッセージを表示
+            setIsPlayerTurn(false);
         }
-
         setPlayerInput('');
     };
 
@@ -90,7 +85,32 @@ const Game: React.FC = () => {
             npc.position.x === targetPos.x && npc.position.y === targetPos.y && npc.id === callingNpcId
         );
         if (targetMovingNpc) {
-            const newDialogue = ["おい、店員！このクレーンゲーム、アームが弱すぎるぞ！", "景品が全然取れないじゃないか。どうにかしろ！"];
+            const { x, y } = targetMovingNpc.position;
+            const adjacentPositions = [ { x, y: y - 1 }, { x, y: y + 1 }, { x: x - 1, y }, { x: x + 1, y } ];
+            const nearbyNpc = adjacentPositions.map(pos =>
+                NPCS.find(staticNpc => staticNpc.position.x === pos.x && staticNpc.position.y === pos.y)
+            ).find(npc => npc);
+
+            let newDialogue: string[] = [];
+            if (nearbyNpc) {
+                switch (nearbyNpc.sprite) {
+                    case '👾': newDialogue = ["おい、店員！このゲーム機、コインを飲み込んだぞ！", "金返せ！どうにかしろ！"]; break;
+                    case '🚀': newDialogue = ["店員さん！このシューティングゲーム、途中で止まった！", "最高記録出そうだったのに！"]; break;
+                    case '🎵': newDialogue = ["おい！この音ゲー、音がズレてるじゃないか！", "パーフェクト狙ってたのに！"]; break;
+                    case '💰': newDialogue = ["両替機が壊れてる！1000円札が戻ってこない！", "すぐに直してくれ！"]; break;
+                    case '🕹️': newDialogue = ["レトロゲームのコントローラーが効かない！", "上が押せないんだ！"]; break;
+                    case '📸': newDialogue = ["プリクラ機でお金だけ取られた！", "写真が出てこないぞ！"]; break;
+                    case '🥤': newDialogue = ["自販機でジュース買ったけど出てこない！", "お金返して！"]; break;
+                    case 'ℹ️': newDialogue = ["インフォメーションに誰もいない！", "質問したいことがあるのに！"]; break;
+                    case '🧸':
+                    default:
+                        newDialogue = ["おい、店員！このクレーンゲーム、アームが弱すぎるぞ！", "景品が全然取れないじゃないか。どうにかしろ！"];
+                        break;
+                }
+            } else {
+                newDialogue = ["おい、店員！なんだお前は！", "用事があったのに忘れちまったじゃねえか！"];
+            }
+
             setDialogue(newDialogue);
             setChatHistory(prev => [...prev, '--- Battle Start ---', `NPC: ${newDialogue[0]}`]);
             setDialogueIndex(0);
@@ -117,7 +137,6 @@ const Game: React.FC = () => {
             setShowChatHistory(prev => !prev);
             return;
         }
-
         if (e.key === 'Escape') {
             if (dialogue) {
                 setDialogue(null);
@@ -131,7 +150,6 @@ const Game: React.FC = () => {
             }
             return;
         }
-
         const isInputFocused = document.activeElement?.tagName === 'INPUT';
         if (dialogue) {
             if ((e.key === ' ' || e.key === 'Enter') && !isInputFocused) {
@@ -140,7 +158,6 @@ const Game: React.FC = () => {
             }
             return;
         }
-
         let newPosition = { ...playerPosition };
         let newDirection = playerDirection;
         switch (e.key) {
@@ -183,8 +200,8 @@ const Game: React.FC = () => {
                     for (const npc of movedNpcs) {
                         const { x, y } = npc.position;
                         const adjacentPositions = [ { x, y: y - 1 }, { x, y: y + 1 }, { x: x - 1, y }, { x: x + 1, y } ];
-                        const isNextToTarget = adjacentPositions.some(pos => NPCS.find(staticNpc => staticNpc.position.x === pos.x && staticNpc.position.y === pos.y && staticNpc.sprite === '🧸'));
-                        if (isNextToTarget) {
+                        const nearbyStaticNpc = adjacentPositions.map(pos => NPCS.find(staticNpc => staticNpc.position.x === pos.x && staticNpc.position.y === pos.y)).find(npc => npc);
+                        if (nearbyStaticNpc) {
                             setCallingNpcId(npc.id);
                             break;
                         }

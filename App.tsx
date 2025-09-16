@@ -15,6 +15,10 @@ const App: React.FC = () => {
     setGameStarted(false);
   };
 
+  const handleMoneyChange = (amount: number) => {
+    setMoney(prev => prev + amount);
+  };
+
   if (!gameStarted) {
     return <Title onGameStart={handleGameStart} />;
   }
@@ -33,7 +37,7 @@ const App: React.FC = () => {
 
       <header className="mb-4 text-center">
       </header>
-      <Game onReturnToTitle={handleReturnToTitle} />
+      <Game onReturnToTitle={handleReturnToTitle} onMoneyChange={handleMoneyChange} />
     </div>
   );
 };

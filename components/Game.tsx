@@ -9,9 +9,16 @@ import ChatHistory from './ChatHistory';
 
 interface GameProps {
   onReturnToTitle?: () => void;
+  onMoneyChange?: (amount: number) => void;
 }
 
-const Game: React.FC<GameProps> = ({ onReturnToTitle }) => {
+interface DroppedMoney {
+  id: string;
+  position: Position;
+  amount: number;
+}
+
+const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
     const [playerPosition, setPlayerPosition] = useState<Position>(PLAYER_START_POSITION);
     const [playerDirection, setPlayerDirection] = useState<Direction>(Direction.DOWN);
     const [dialogue, setDialogue] = useState<string[] | null>(null);
@@ -26,6 +33,8 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle }) => {
     const [showChatHistory, setShowChatHistory] = useState<boolean>(false);
     const [showExitConfirm, setShowExitConfirm] = useState<boolean>(false);
     const [exitSelected, setExitSelected] = useState<number>(0);
+    const [droppedMoney, setDroppedMoney] = useState<DroppedMoney[]>([]);
+    const [nextCustomerId, setNextCustomerId] = useState<number>(1000);
 
     const playerPositionRef = useRef(playerPosition);
     useEffect(() => {
@@ -51,6 +60,36 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle }) => {
         const tile = MAP_LAYOUT[pos.y][pos.x];
         return tile === TileType.EXIT;
     }, []);
+
+    const checkAndPickupMoney = useCallback((pos: Position) => {
+        const money = droppedMoney.find(m => m.position.x === pos.x && m.position.y === pos.y);
+        if (money && onMoneyChange) {
+            onMoneyChange(money.amount);
+            setDroppedMoney(prev => prev.filter(m => m.id !== money.id));
+            setChatHistory(prev => [...prev, `SYSTEM: ${money.amount}円を拾いました！キラキラ✨`]);
+        }
+    }, [droppedMoney, onMoneyChange]);
+
+    const spawnNewCustomer = useCallback(() => {
+        const entrancePosition = { x: 18, y: 7 };
+        // 入り口が空いているかチェック
+        const isEntranceOccupied = movingNpcs.some(npc =>
+            npc.position.x === entrancePosition.x && npc.position.y === entrancePosition.y
+        ) || (playerPosition.x === entrancePosition.x && playerPosition.y === entrancePosition.y);
+
+        if (!isEntranceOccupied) {
+            const newCustomer: NpcData = {
+                id: nextCustomerId,
+                position: entrancePosition,
+                message: ["..."],
+                sprite: 'P'
+            };
+
+            setMovingNpcs(prev => [...prev, newCustomer]);
+            setNextCustomerId(prev => prev + 1);
+            setChatHistory(prev => [...prev, `SYSTEM: 新しいお客さんが来店しました！`]);
+        }
+    }, [movingNpcs, playerPosition, nextCustomerId]);
 
     const handlePlayerAction = () => {
         setChatHistory(prev => [...prev, `Player: ${playerInput}`]);
@@ -210,8 +249,18 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle }) => {
             setExitSelected(0);
         } else if (isWalkable(newPosition)) {
             setPlayerPosition(newPosition);
+            checkAndPickupMoney(newPosition);
         }
-    }, [playerPosition, playerDirection, dialogue, dialogueIndex, isWalkable, checkExitTile, handleInteraction, movingNpcs, callingNpcId, showExitConfirm, exitSelected, onReturnToTitle]);
+    }, [playerPosition, playerDirection, dialogue, dialogueIndex, isWalkable, checkExitTile, checkAndPickupMoney, handleInteraction, movingNpcs, callingNpcId, showExitConfirm, exitSelected, onReturnToTitle]);
+
+    // 新しい客のスポーンタイマー（90秒 = 90000ms）
+    useEffect(() => {
+        const customerSpawnTimer = setInterval(() => {
+            spawnNewCustomer();
+        }, 90000); // 1分30秒
+
+        return () => clearInterval(customerSpawnTimer);
+    }, [spawnNewCustomer]);
 
     useEffect(() => {
         const gameLoop = setInterval(() => {
@@ -219,6 +268,7 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle }) => {
             setMovingNpcs(currentNpcs => {
                 const movedNpcs = currentNpcs.map(npc => {
                     if (npc.id === callingNpcId) return npc;
+                    const oldPosition = { ...npc.position };
                     const direction = Math.floor(Math.random() * 4);
                     const nextPos = { ...npc.position };
                     if (direction === 0) nextPos.y--; else if (direction === 1) nextPos.y++; else if (direction === 2) nextPos.x--; else if (direction === 3) nextPos.x++;
@@ -227,7 +277,19 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle }) => {
                     const isNextPosStaticNpc = NPCS.some(staticNpc => staticNpc.position.x === nextPos.x && staticNpc.position.y === nextPos.y);
                     const isNextPosPlayer = playerPositionRef.current.x === nextPos.x && playerPositionRef.current.y === nextPos.y;
                     const isNextPosOtherMovingNpc = currentNpcs.some(otherNpc => otherNpc.id !== npc.id && otherNpc.position.x === nextPos.x && otherNpc.position.y === nextPos.y);
-                    if (!isNextPosWall && !isNextPosOutOfBounds && !isNextPosStaticNpc && !isNextPosPlayer && !isNextPosOtherMovingNpc) return { ...npc, position: nextPos };
+
+                    if (!isNextPosWall && !isNextPosOutOfBounds && !isNextPosStaticNpc && !isNextPosPlayer && !isNextPosOtherMovingNpc) {
+                        // CPUが移動した場合、3%の確率でお金を落とす
+                        if (Math.random() < 0.03) {
+                            const moneyId = `money_${Date.now()}_${npc.id}`;
+                            setDroppedMoney(prev => [...prev, {
+                                id: moneyId,
+                                position: oldPosition,
+                                amount: 100
+                            }]);
+                        }
+                        return { ...npc, position: nextPos };
+                    }
                     return npc;
                 });
                 if (callingNpcId === null && !isCallOnCooldown) {
@@ -259,6 +321,43 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle }) => {
             {NPCS.map(npc => (<Npc key={npc.id} position={npc.position} sprite={npc.sprite} />))}
             {movingNpcs.map(npc => (<Player key={npc.id} position={npc.position} direction={Direction.DOWN} color="red" isCalling={npc.id === callingNpcId} />))}
             <Player position={playerPosition} direction={playerDirection} color="blue" />
+
+            {/* 落ちているお金のキラキラエフェクト */}
+            {droppedMoney.map(money => (
+                <div
+                    key={money.id}
+                    className="absolute pointer-events-none"
+                    style={{
+                        left: `${money.position.x * TILE_SIZE}px`,
+                        top: `${money.position.y * TILE_SIZE}px`,
+                        width: `${TILE_SIZE}px`,
+                        height: `${TILE_SIZE}px`,
+                        zIndex: 5
+                    }}
+                >
+                    <div className="relative w-full h-full flex items-center justify-center">
+                        {/* キラキラアニメーション */}
+                        <div className="absolute animate-ping">
+                            <span className="text-2xl">✨</span>
+                        </div>
+                        <div className="absolute animate-pulse">
+                            <span className="text-xl text-yellow-400">💰</span>
+                        </div>
+                        <div className="absolute animate-bounce" style={{ animationDelay: '0.5s' }}>
+                            <span className="text-xs text-white font-bold bg-black bg-opacity-50 px-1 rounded">
+                                {money.amount}
+                            </span>
+                        </div>
+                        {/* 追加のキラキラエフェクト */}
+                        <div className="absolute top-0 left-0 animate-ping" style={{ animationDelay: '0.2s' }}>
+                            <span className="text-sm">⭐</span>
+                        </div>
+                        <div className="absolute bottom-0 right-0 animate-ping" style={{ animationDelay: '0.8s' }}>
+                            <span className="text-sm">✨</span>
+                        </div>
+                    </div>
+                </div>
+            ))}
 
             {/* 出口確認ダイアログ */}
             {showExitConfirm && (

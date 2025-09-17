@@ -22,7 +22,6 @@ const Title: React.FC<TitleProps> = ({ onGameStart }) => {
           setSelectedOption(prev => Math.max(0, prev - 1));
           break;
         case 'ArrowDown':
-          setSelectedOption(prev => Math.min(2, prev + 1));
           break;
         case 'Enter':
         case ' ':
@@ -30,7 +29,7 @@ const Title: React.FC<TitleProps> = ({ onGameStart }) => {
             onGameStart();
           } else if (selectedOption === 1) {
             // クレジット画面
-            alert('開発者: あなた\n音楽: なし\n特別な感謝: Claude');
+
           }
           break;
         default:
@@ -43,8 +42,7 @@ const Title: React.FC<TitleProps> = ({ onGameStart }) => {
   }, [selectedOption, onGameStart]);
 
   const menuItems = [
-    'ゲームスタート',
-    'クレジット'
+    'ゲームスタート'
   ];
 
   return (
@@ -86,17 +84,7 @@ const Title: React.FC<TitleProps> = ({ onGameStart }) => {
 
         {/* ゲーム機のASCIIアート風装飾 */}
         <div className="mb-8 text-green-400 text-sm leading-4">
-          <pre>{`
-    ┌─────────────────────┐
-    │  ████████████████   │
-    │  █              █   │
-    │  █   👾  🚀  🎵   █   │
-    │  █              █   │
-    │  █   💰  🕹️  📸   █   │
-    │  █              █   │
-    │  ████████████████   │
-    └─────────────────────┘
-          `}</pre>
+
         </div>
 
         {/* メニュー */}

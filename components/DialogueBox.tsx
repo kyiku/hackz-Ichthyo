@@ -12,6 +12,10 @@ interface DialogueBoxProps {
   inputValue: string; // 入力欄の文字
   onInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void; // 入力欄の文字が変わった時の関数
   onSubmit: () => void; // 送信ボタンが押された時の関数
+  customerName?: string; // 顧客名
+  customerAge?: number; // 顧客の年齢
+  onBanCustomer?: () => void; // 顧客を出禁にする関数
+  showBanButton?: boolean; // 出禁ボタンを表示するかどうか
 }
 
 const DialogueBox: React.FC<DialogueBoxProps> = ({
@@ -22,6 +26,10 @@ const DialogueBox: React.FC<DialogueBoxProps> = ({
                                                    inputValue,
                                                    onInputChange,
                                                    onSubmit,
+                                                   customerName,
+                                                   customerAge,
+                                                   onBanCustomer,
+                                                   showBanButton,
                                                  }) => {
   const { transcript, isListening, startListening, stopListening, isSupported } = useSpeechRecognition();
 
@@ -50,6 +58,21 @@ const DialogueBox: React.FC<DialogueBoxProps> = ({
 
   return (
       <div className="absolute bottom-4 left-4 right-4 bg-gray-900 bg-opacity-80 border-2 border-gray-500 rounded-lg p-4 text-white shadow-lg z-20">
+        {/* 顧客情報の表示 */}
+        {customerName && customerAge && (
+          <div className="bg-purple-900 bg-opacity-50 border border-purple-500 rounded-md px-3 py-1 mb-3 text-sm text-purple-200 flex justify-between items-center">
+            <span>💬: <span className="font-bold text-white">{customerName}さん ({customerAge}歳)</span></span>
+            {showBanButton && onBanCustomer && (
+              <button
+                onClick={onBanCustomer}
+                className="bg-red-600 hover:bg-red-700 text-white text-xs px-2 py-1 rounded transition-colors duration-200"
+                title="この顧客を出禁にする"
+              >
+                🚫 出禁
+              </button>
+            )}
+          </div>
+        )}
         <p className="text-xl mb-4">{message}</p>
 
         {/* --- ↓ここから下を新しく追加 --- */}

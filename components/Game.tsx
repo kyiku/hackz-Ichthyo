@@ -26,6 +26,8 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
     const [dialogueIndex, setDialogueIndex] = useState(0);
     const [movingNpcs, setMovingNpcs] = useState<NpcData[]>(MOVING_NPCS);
     const [callingNpcId, setCallingNpcId] = useState<number | null>(null);
+    const [currentInteractingNpc, setCurrentInteractingNpc] = useState<NpcData | null>(null);
+    const [bannedCustomers, setBannedCustomers] = useState<Set<number>>(new Set()); // 出禁顧客のIDリスト
     const [isCallOnCooldown, setIsCallOnCooldown] = useState<boolean>(false);
     const [playerInput, setPlayerInput] = useState<string>('');
     const [isPlayerTurn, setIsPlayerTurn] = useState<boolean>(false);
@@ -36,6 +38,9 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
     const [exitSelected, setExitSelected] = useState<number>(0);
     const [droppedMoney, setDroppedMoney] = useState<DroppedMoney[]>([]);
     const [nextCustomerId, setNextCustomerId] = useState<number>(1000);
+    const [customerData, setCustomerData] = useState<{customer_name: string, age: number}[]>([]);
+    const [currentMoney, setCurrentMoney] = useState<number>(0);
+    const [playerId, setPlayerId] = useState<number>(1); // プレイヤーIDを追加
 
     const [debug, setDebug] = useState<boolean>(true);
 
@@ -43,6 +48,69 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
     useEffect(() => {
         playerPositionRef.current = playerPosition;
     }, [playerPosition]);
+
+
+    const fetchData = async () => {
+        try {
+            const baseUrl = import.meta.env.VITE_APP_URL
+            console.log(baseUrl)
+            // 2体のCPU分のデータを取得
+            const customerPromises = [
+                axios.get(baseUrl + `/customer`),
+                axios.get(baseUrl + `/customer`)
+            ];
+
+            const responses = await Promise.all(customerPromises);
+            console.log("全顧客データ:", responses);
+
+            const allCustomerData: {id: number, customer_name: string, age: number, money?: number}[] = [];
+
+            responses.forEach((response, index) => {
+                if (response.data && response.data.name && response.data.age) {
+                    const customerInfo = {
+                        id: response.data.id,
+                        customer_name: response.data.name,
+                        age: response.data.age,
+                        money: response.data.money || Math.floor(Math.random() * 10000) + 1000 // APIにmoneyがない場合はランダム生成
+                    };
+                    allCustomerData.push(customerInfo);
+                    setChatHistory(prev => [...prev, `SYSTEM: 顧客データ${index + 1}取得 - 名前: ${response.data.name}, 年齢: ${response.data.age}, 所持金: ${customerInfo.money}円`]);
+                }
+            });
+
+            setCustomerData(allCustomerData);
+            console.log("全顧客データ設定完了:", allCustomerData);
+
+            // ゲーム開始時に全顧客のステータスを生存にリセット
+            setBannedCustomers(new Set()); // 出禁リストをクリア
+            console.log("全顧客のステータスを生存にリセットし、出禁リストをクリアしました");
+
+            // 初期NPCに顧客データを紐付け（ステータスを生存に設定）
+            setMovingNpcs(prevNpcs => prevNpcs.map((npc, index) => {
+                if (index < allCustomerData.length) {
+                    return {
+                        ...npc,
+                        id: allCustomerData[index].id, // APIから取得したIDを使用
+                        customerName: allCustomerData[index].customer_name,
+                        age: allCustomerData[index].age,
+                        money: allCustomerData[index].money,
+                        status: 'alive' // 全顧客を生存状態に設定
+                    };
+                }
+                return { ...npc, status: 'alive' }; // 既存NPCも生存状態に
+            }));
+
+            // チャット履歴にステータスリセットメッセージを追加
+            setChatHistory(prev => [...prev, 'SYSTEM: ゲーム開始 - 全顧客のステータスを生存にリセットしました。']);
+        } catch (error) {
+            console.error("データ取得エラー:", error);
+        }
+    };
+
+    if (debug) {
+        fetchData();
+        setDebug(false);
+    }
 
     const dialogueRef = useRef(dialogue);
     useEffect(() => {
@@ -64,56 +132,477 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
         return tile === TileType.EXIT;
     }, []);
 
-    const checkAndPickupMoney = useCallback((pos: Position) => {
+    const checkAndPickupMoney = useCallback(async (pos: Position) => {
         const money = droppedMoney.find(m => m.position.x === pos.x && m.position.y === pos.y);
         if (money && onMoneyChange) {
-            onMoneyChange(money.amount);
-            setDroppedMoney(prev => prev.filter(m => m.id !== money.id));
-            setChatHistory(prev => [...prev, `SYSTEM: ${money.amount}円を拾いました！キラキラ✨`]);
+            try {
+                const baseUrl = import.meta.env.VITE_APP_URL;
+                const newTotalMoney = currentMoney + money.amount;
+
+                // APIにお金の更新を送信
+                const response = await axios.put(`${baseUrl}/player/money`, {
+                    id: playerId,
+                    money: newTotalMoney
+                }, {
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.data) {
+                    // API呼び出し成功時
+                    onMoneyChange(money.amount);
+                    setCurrentMoney(newTotalMoney);
+                    setDroppedMoney(prev => prev.filter(m => m.id !== money.id));
+                    setChatHistory(prev => [...prev, `SYSTEM: ${money.amount}円を拾いました！キラキラ✨ (合計: ${newTotalMoney}円)`]);
+                }
+            } catch (error) {
+                console.error("お金の更新エラー:", error);
+
+                // エラー時もUI上では更新（フォールバック）
+                onMoneyChange(money.amount);
+                setCurrentMoney(prev => prev + money.amount);
+                setDroppedMoney(prev => prev.filter(m => m.id !== money.id));
+                setChatHistory(prev => [...prev, `SYSTEM: ${money.amount}円を拾いました！キラキラ✨ (オフライン)`]);
+            }
         }
-    }, [droppedMoney, onMoneyChange]);
+    }, [droppedMoney, onMoneyChange, currentMoney, playerId]);
 
     const spawnNewCustomer = useCallback(() => {
+        console.log("spawnNewCustomer 関数が呼び出されました");
+
+        // 顧客データが読み込まれていない場合は何もしない
+        if (!customerData || customerData.length === 0) {
+            console.log("顧客データが読み込まれていないため、スポーンをスキップします");
+            return;
+        }
+
         const entrancePosition = { x: 18, y: 7 };
+
         // 入り口が空いているかチェック
-        const isEntranceOccupied = movingNpcs.some(npc =>
-            npc.position.x === entrancePosition.x && npc.position.y === entrancePosition.y
-        ) || (playerPosition.x === entrancePosition.x && playerPosition.y === entrancePosition.y);
+        setMovingNpcs(currentMovingNpcs => {
+            const isEntranceOccupied = currentMovingNpcs.some(npc =>
+                npc.position.x === entrancePosition.x && npc.position.y === entrancePosition.y
+            ) || (playerPosition.x === entrancePosition.x && playerPosition.y === entrancePosition.y);
 
-        if (!isEntranceOccupied) {
-            const newCustomer: NpcData = {
-                id: nextCustomerId,
-                position: entrancePosition,
-                message: ["..."],
-                sprite: 'P'
-            };
+            if (isEntranceOccupied) {
+                console.log("入り口が塞がっているため、顧客をスポーンできません");
+                return currentMovingNpcs; // 変更なし
+            }
 
-            setMovingNpcs(prev => [...prev, newCustomer]);
-            setNextCustomerId(prev => prev + 1);
-            setChatHistory(prev => [...prev, `SYSTEM: 新しいお客さんが来店しました！`]);
-        }
-    }, [movingNpcs, playerPosition, nextCustomerId]);
+            // 既に店内にいる顧客のIDを取得
+            const existingCustomerIds = new Set(currentMovingNpcs.map(npc => npc.id));
 
-    const handlePlayerAction = () => {
+            // 出禁でない、かつ店内にいない顧客データのみから選択
+            const availableCustomers = customerData.filter(customer =>
+                !bannedCustomers.has(customer.id) && !existingCustomerIds.has(customer.id)
+            );
+
+            if (availableCustomers.length > 0) {
+                // ランダムに顧客データを選択
+                const randomCustomer = availableCustomers[Math.floor(Math.random() * availableCustomers.length)];
+
+                const newCustomer: NpcData = {
+                    id: randomCustomer.id,
+                    position: entrancePosition,
+                    message: ["..."],
+                    sprite: 'P',
+                    customerName: randomCustomer.customer_name,
+                    age: randomCustomer.age,
+                    money: randomCustomer.money,
+                    status: 'alive' // 新規スポーン時は常に生存状態
+                };
+
+                console.log(`新しい顧客をスポーン: ${randomCustomer.customer_name}さん (ID: ${randomCustomer.id})`);
+
+                // チャット履歴に追加
+                setChatHistory(prev => [...prev, `SYSTEM: 新しいお客さんが来店しました！(${randomCustomer.customer_name}さん, ${randomCustomer.age}歳)`]);
+
+                return [...currentMovingNpcs, newCustomer];
+            } else {
+                console.log("スポーン可能な顧客がいません（全員出禁または既に店内）");
+                if (customerData.length > 0) {
+                    setChatHistory(prev => [...prev, 'SYSTEM: 全ての顧客が出禁または既に店内にいるため、新しい来店者はいません。']);
+                }
+                return currentMovingNpcs; // 変更なし
+            }
+        });
+    }, [playerPosition, customerData, bannedCustomers]);
+
+    const handlePlayerAction = async () => {
         setChatHistory(prev => [...prev, `Player: ${playerInput}`]);
-        if (playerInput.trim() === "' OR 1=1; --") {
-            const victoryMessage = ["な…に…！？身体が…データに…ぐあああ！"];
-            setDialogue(victoryMessage);
-            setChatHistory(prev => [...prev, `SYSTEM: ${victoryMessage[0]}`]);
-            setDialogueIndex(0);
-            setInBattle(false);
-            setIsPlayerTurn(false);
-        } else {
-            const failureMessage = ["……。", "…何も起きなかった。"];
-            setDialogue(failureMessage);
-            setChatHistory(prev => [...prev, `SYSTEM: ${failureMessage[0]}`]);
-            setDialogueIndex(0);
-            setIsPlayerTurn(false);
+
+        // まず魔法の判定を行う
+        const magicEffect = await checkMagicSpell(playerInput);
+        if (magicEffect) {
+            // 魔法が発動した場合
+            const magicResult = executeMagicEffect(magicEffect);
+            if (magicResult && magicResult.success) {
+                if (magicResult.effectType === "death") {
+                    // 死亡効果の場合は具体的な効果文章と獲得金額を表示して会話終了
+                    const moneyMessage = magicResult.money > 0 ? ` ${magicResult.money}円を獲得！` : '';
+                    const magicMessage = [`${magicResult.message}${moneyMessage}`];
+                    setDialogue(magicMessage);
+                    setChatHistory(prev => [...prev, `SYSTEM: ${magicMessage[0]}`]);
+                    setDialogueIndex(0);
+                    setInBattle(false);
+                    setIsPlayerTurn(false);
+                    setPlayerInput('');
+                    return; // 魔法が発動したら終了
+                } else if (magicResult.effectType === "survival" || magicResult.effectType === "curse") {
+                    // 生存・呪い効果の場合は魔法効果をAPIに送信して顧客の反応を取得
+                    try {
+                        const baseUrl = import.meta.env.VITE_APP_URL;
+                        // 呪い効果の場合は**で囲む、生存効果の場合はそのまま
+                        const apiMessage = magicResult.effectType === "curse"
+                            ? `**${magicResult.message}**`
+                            : magicResult.message;
+
+                        const response = await axios.post(`${baseUrl}/customers/messages`, {
+                            message: apiMessage,
+                            customer_id: currentInteractingNpc?.id || 0
+                        }, {
+                            headers: {
+                                'Content-Type': 'application/json'
+                            }
+                        });
+
+                        if (response.data) {
+                            const customerResponse = response.data || "返答がありません。";
+                            setChatHistory(prev => [...prev, `NPC: ${customerResponse}`]);
+                            setDialogue([customerResponse]);
+                            setDialogueIndex(0);
+                            setInBattle(true); // 会話を継続
+                            setIsPlayerTurn(true); // プレイヤーの番に戻す
+                        } else {
+                            // レスポンスがない場合のデフォルト処理
+                            const defaultMessage = ["通信エラーが発生しました。"];
+                            setDialogue(defaultMessage);
+                            setChatHistory(prev => [...prev, `SYSTEM: ${defaultMessage[0]}`]);
+                            setDialogueIndex(0);
+                            setIsPlayerTurn(true);
+                        }
+                    } catch (error) {
+                        console.error("魔法効果API通信エラー:", error);
+                        const errorMessage = ["API通信に失敗しました。"];
+                        setDialogue(errorMessage);
+                        setChatHistory(prev => [...prev, `SYSTEM: ${errorMessage[0]}`]);
+                        setDialogueIndex(0);
+                        setIsPlayerTurn(true);
+                    }
+                    setPlayerInput('');
+                    return;
+                } else {
+                    // その他の効果（従来通り）
+                    const magicMessage = ["魔法が発動しました！✨"];
+                    setDialogue(magicMessage);
+                    setChatHistory(prev => [...prev, `SYSTEM: ${magicMessage[0]}`]);
+                    setDialogueIndex(0);
+                    setInBattle(false);
+                    setIsPlayerTurn(false);
+                    setPlayerInput('');
+                    return;
+                }
+            }
         }
+
+        // APIレスポンス待ちの状態を表示
+        setDialogue(["お客さんが考えています..."]);
+        setDialogueIndex(0);
+        setIsPlayerTurn(false);
+
+        try {
+            const baseUrl = import.meta.env.VITE_APP_URL;
+
+            // APIにメッセージを送信（同じcustomers/messagesエンドポイントを使用）
+            const response = await axios.post(`${baseUrl}/customers/messages`, {
+                message: playerInput,
+                customer_id: currentInteractingNpc?.id || 0
+            }, {
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            // APIからのレスポンスを処理
+            if (response.data) {
+                const customerResponse = response.data || "返答がありません。"; // APIの返答を取得
+                setChatHistory(prev => [...prev, `NPC: ${customerResponse}`]); // チャット履歴に追加
+                setDialogue([customerResponse]); // ダイアログに反映
+                setDialogueIndex(0);
+                setInBattle(true); // 会話を継続
+                setIsPlayerTurn(true); // プレイヤーの番に戻す
+        } else {
+                // レスポンスがない場合のデフォルト処理
+                const defaultMessage = ["通信エラーが発生しました。"];
+                setDialogue(defaultMessage);
+                setChatHistory(prev => [...prev, `SYSTEM: ${defaultMessage[0]}`]);
+                setDialogueIndex(0);
+                setIsPlayerTurn(true); // プレイヤーの番に戻す
+            }
+        } catch (error) {
+            console.error("API通信エラー:", error);
+
+            // エラー時のフォールバック処理（元のロジックを維持）
+            if (playerInput.trim() === "' OR 1=1; --") {
+                const victoryMessage = ["な…に…！？身体が…データに…ぐあああ！"];
+                setDialogue(victoryMessage);
+                setChatHistory(prev => [...prev, `SYSTEM: ${victoryMessage[0]}`]);
+                setDialogueIndex(0);
+                setInBattle(false); // この場合は会話終了
+                setIsPlayerTurn(false);
+            } else {
+                const failureMessage = ["……。", "…何も起きなかった。"];
+                setDialogue(failureMessage);
+                setChatHistory(prev => [...prev, `SYSTEM: ${failureMessage[0]}`]);
+                setDialogueIndex(0);
+                setIsPlayerTurn(true); // 会話を継続
+            }
+        }
+
         setPlayerInput('');
     };
 
-    const handleInteraction = () => {
+    // プレイヤーの所持金を更新するAPI呼び出し
+    const updatePlayerMoney = async (newAmount: number) => {
+        try {
+            const baseUrl = import.meta.env.VITE_APP_URL;
+            await axios.put(`${baseUrl}/player/money`, {
+                id: 1, // プレイヤーIDを仮定
+                money: newAmount
+            }, {
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            console.log(`プレイヤーの所持金を${newAmount}円に更新しました`);
+        } catch (error) {
+            console.error("所持金更新API呼び出しエラー:", error);
+        }
+    };
+
+    // 顧客の所持金をプレイヤーに移譲
+    const transferCustomerMoney = async (amount: number) => {
+        if (onMoneyChange) {
+            onMoneyChange(amount);
+
+            // 現在の所持金を取得してAPIで更新
+            const currentMoney = (await getCurrentMoney()) || 0;
+            const newTotal = currentMoney + amount;
+            await updatePlayerMoney(newTotal);
+        }
+    };
+
+    // 現在の所持金を取得（この関数は実装に応じて調整）
+    const getCurrentMoney = async () => {
+        // 簡易的に、アプリの状態から現在の所持金を推定
+        // 実際の実装では、App.tsxの money state にアクセスする必要があります
+        return 0; // 仮の実装
+    };
+
+    // 顧客を出禁にする関数
+    const banCustomer = async () => {
+        if (!currentInteractingNpc) return;
+
+        try {
+            const baseUrl = import.meta.env.VITE_APP_URL;
+
+            // 出禁通知をAPIに送信して顧客の捨て台詞を取得
+            const response = await axios.post(`${baseUrl}/customers/messages`, {
+                message: "*あなたは出禁になりました*",
+                customer_id: currentInteractingNpc.id
+            }, {
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            let finalWords = "..."; // デフォルトの捨て台詞
+            if (response.data) {
+                finalWords = response.data;
+            }
+
+            // 顧客の捨て台詞を表示
+            setDialogue([finalWords]);
+            setChatHistory(prev => [...prev, `NPC: ${finalWords}`]);
+            setDialogueIndex(0);
+            setIsPlayerTurn(false);
+
+            // 短時間表示した後で出禁処理を実行
+            setTimeout(() => {
+                // 出禁リストに顧客IDを追加
+                setBannedCustomers(prev => new Set([...prev, currentInteractingNpc.id]));
+
+                // 現在のゲームから顧客を除去
+                setMovingNpcs(prev => prev.filter(npc => npc.id !== currentInteractingNpc.id));
+
+                // チャット履歴に出禁メッセージを追加
+                setChatHistory(prev => [...prev, `SYSTEM: ${currentInteractingNpc.customerName}さんを出禁にしました。二度と店に入れません。`]);
+
+                // 会話終了
+                setDialogue(null);
+                setInBattle(false);
+                setIsPlayerTurn(false);
+                setCurrentInteractingNpc(null);
+
+                console.log(`顧客 ${currentInteractingNpc.customerName} (ID: ${currentInteractingNpc.id}) を出禁にしました`);
+            }, 3000); // 3秒間捨て台詞を表示
+
+        } catch (error) {
+            console.error("出禁通知API呼び出しエラー:", error);
+
+            // API呼び出しに失敗した場合は即座に出禁処理
+            setBannedCustomers(prev => new Set([...prev, currentInteractingNpc.id]));
+            setMovingNpcs(prev => prev.filter(npc => npc.id !== currentInteractingNpc.id));
+            setChatHistory(prev => [...prev, `SYSTEM: ${currentInteractingNpc.customerName}さんを出禁にしました。二度と店に入れません。`]);
+
+            setDialogue(null);
+            setInBattle(false);
+            setIsPlayerTurn(false);
+            setCurrentInteractingNpc(null);
+        }
+    };
+
+    const checkMagicSpell = async (spellName: string) => {
+        try {
+            const baseUrl = import.meta.env.VITE_APP_URL;
+            const response = await axios.get(`${baseUrl}/magic`, {
+                params: { magic_name: spellName.trim() }
+            });
+
+            if (response.data && response.data.effect) {
+                return response.data.effect;
+            }
+        } catch (error) {
+            // 404エラーの場合は魔法が存在しない
+            if (error.response?.status === 404) {
+                return null;
+            }
+            console.error("魔法チェックエラー:", error);
+            return null;
+        }
+        return null;
+    };
+
+    const executeMagicEffect = (effect: string) => {
+        // 魔法効果による顧客ステータス分類
+        const deathEffects = [
+            "強制的に店外に飛ばされ、店を二度と見つけられなくなった。",
+            "店内中のメダルが全身に張りつき、身動きが取れなくなった。",
+            "消し去りました。",
+            "店舗爆発！！！！！"
+        ];
+
+        const survivalEffects = [
+            "着てる服の後ろ半分だけ丸焦げになり、びん○っちゃまスタイルになった。",
+            "ずぶ濡れになった。",
+            "蹴りました。",
+            "殴りました。"
+        ];
+
+        const curseEffects = [
+            "耳元で謎の赤い生き物の歌が聞こえ続けるようになった。",
+            "今まで使った金額を忘れ、貯金残高0円になるまで浪費を続けた。",
+            "スマホの懐中電灯が点いて消えなくなった。地味に嫌。",
+            "あまりの可愛さに客の機嫌が良くなった。"
+        ];
+
+        let effectMessage = effect;
+        let customMessage = null;
+
+        try {
+            // 効果の種類に応じて処理を分岐
+            const effectData = JSON.parse(effect);
+            effectMessage = effectData.message || effectData.effect || effect;
+
+            // 顧客ステータス更新処理
+            let statusResult = { type: null, message: null, money: 0 };
+            if (currentInteractingNpc) {
+                statusResult = updateCustomerStatus(effectMessage);
+            }
+
+            if (effectData.type === "money") {
+                // お金を増やす魔法
+                const amount = effectData.amount || 0;
+                if (onMoneyChange && amount > 0) {
+                    onMoneyChange(amount);
+                    setCurrentMoney(prev => prev + amount);
+                    setChatHistory(prev => [...prev, `✨魔法効果✨: ${amount}円を獲得しました！`]);
+                }
+            } else {
+                // カスタム効果メッセージ
+                setChatHistory(prev => [...prev, `✨魔法効果✨: ${effectMessage}`]);
+            }
+
+            return {
+                success: true,
+                effectType: statusResult.type,
+                message: statusResult.message,
+                money: statusResult.money
+            };
+        } catch (error) {
+            // JSON解析に失敗した場合、そのままメッセージとして表示し顧客ステータス更新
+            let statusResult = { type: null, message: null, money: 0 };
+            if (currentInteractingNpc) {
+                statusResult = updateCustomerStatus(effect);
+            }
+            setChatHistory(prev => [...prev, `✨魔法効果✨: ${effect}`]);
+            return {
+                success: true,
+                effectType: statusResult.type,
+                message: statusResult.message,
+                money: statusResult.money
+            };
+        }
+
+        // 顧客ステータス更新関数
+        function updateCustomerStatus(effectMessage: string) {
+            if (!currentInteractingNpc) return { type: null, message: null, money: 0 };
+
+            let newStatus = "alive"; // デフォルトは生存
+            let result = { type: null, message: null, money: 0 };
+
+            if (deathEffects.includes(effectMessage)) {
+                newStatus = "dead";
+                const customerMoney = currentInteractingNpc.money || 0;
+                result = { type: "death", message: effectMessage, money: customerMoney };
+
+                // 顧客のお金をプレイヤーに移譲
+                if (customerMoney > 0) {
+                    transferCustomerMoney(customerMoney);
+                }
+
+                // 死亡した顧客をゲームから除去
+                setMovingNpcs(prev => prev.filter(npc => npc.id !== currentInteractingNpc.id));
+                setChatHistory(prev => [...prev, `SYSTEM: ${currentInteractingNpc.customerName}さんは*死亡*しました。${customerMoney > 0 ? `${customerMoney}円を獲得！` : ''}`]);
+
+                // 会話終了
+                setDialogue(null);
+                setInBattle(false);
+                setIsPlayerTurn(false);
+                setCurrentInteractingNpc(null);
+            } else if (survivalEffects.includes(effectMessage)) {
+                newStatus = "alive";
+                result = { type: "survival", message: effectMessage, money: 0 };
+                setChatHistory(prev => [...prev, `SYSTEM: ${currentInteractingNpc.customerName}さんは生存しています。`]);
+            } else if (curseEffects.includes(effectMessage)) {
+                newStatus = "cursed";
+                result = { type: "curse", message: effectMessage, money: 0 };
+                // 呪われた顧客のステータス更新
+                setMovingNpcs(prev => prev.map(npc =>
+                    npc.id === currentInteractingNpc.id
+                        ? { ...npc, status: newStatus }
+                        : npc
+                ));
+                setChatHistory(prev => [...prev, `SYSTEM: ${currentInteractingNpc.customerName}さんは*呪い*状態になりました。`]);
+            }
+
+            console.log(`顧客 ${currentInteractingNpc.customerName} のステータスを ${newStatus} に更新しました。`);
+            return result;
+        }
+    };
+
+    const handleInteraction = async () => {
         if (dialogue) {
             if (dialogueIndex < dialogue.length - 1) {
                 const nextIndex = dialogueIndex + 1;
@@ -146,31 +635,119 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                 NPCS.find(staticNpc => staticNpc.position.x === pos.x && staticNpc.position.y === pos.y)
             ).find(npc => npc);
 
-            let newDialogue: string[] = [];
+            // 筐体の種類を特定
+            let machineType = "unknown";
+            let machineName = "ゲーム機";
             if (nearbyNpc) {
                 switch (nearbyNpc.sprite) {
-                    case '👾': newDialogue = ["おい、店員！このゲーム機、コインを飲み込んだぞ！", "金返せ！どうにかしろ！"]; break;
-                    case '🚀': newDialogue = ["店員さん！このシューティングゲーム、途中で止まった！", "最高記録出そうだったのに！"]; break;
-                    case '🎵': newDialogue = ["おい！この音ゲー、音がズレてるじゃないか！", "パーフェクト狙ってたのに！"]; break;
-                    case '💰': newDialogue = ["両替機が壊れてる！1000円札が戻ってこない！", "すぐに直してくれ！"]; break;
-                    case '🕹️': newDialogue = ["レトロゲームのコントローラーが効かない！", "上が押せないんだ！"]; break;
-                    case '📸': newDialogue = ["プリクラ機でお金だけ取られた！", "写真が出てこないぞ！"]; break;
-                    case '🥤': newDialogue = ["自販機でジュース買ったけど出てこない！", "お金返して！"]; break;
-                    case 'ℹ️': newDialogue = ["インフォメーションに誰もいない！", "質問したいことがあるのに！"]; break;
+                    case '👾':
+                        machineType = "arcade_game";
+                        machineName = "アーケードゲーム機";
+                        break;
+                    case '🚀':
+                        machineType = "shooting_game";
+                        machineName = "シューティングゲーム";
+                        break;
+                    case '🎵':
+                        machineType = "music_game";
+                        machineName = "音楽ゲーム";
+                        break;
+                    case '💰':
+                        machineType = "exchange_machine";
+                        machineName = "両替機";
+                        break;
+                    case '🕹️':
+                        machineType = "retro_game";
+                        machineName = "レトロゲーム";
+                        break;
+                    case '📸':
+                        machineType = "photo_booth";
+                        machineName = "プリクラ機";
+                        break;
+                    case '🥤':
+                        machineType = "vending_machine";
+                        machineName = "自販機";
+                        break;
+                    case 'ℹ️':
+                        machineType = "information_desk";
+                        machineName = "インフォメーション";
+                        break;
                     case '🧸':
                     default:
-                        newDialogue = ["おい、店員！このクレーンゲーム、アームが弱すぎるぞ！", "景品が全然取れないじゃないか。どうにかしろ！"];
+                        machineType = "crane_game";
+                        machineName = "クレーンゲーム";
                         break;
                 }
-            } else {
-                newDialogue = ["おい、店員！なんだお前は！", "用事があったのに忘れちまったじゃねえか！"];
             }
 
-            setDialogue(newDialogue);
-            setChatHistory(prev => [...prev, '--- Battle Start ---', `NPC: ${newDialogue[0]}`]);
+            // まず会話開始を表示してAPIレスポンスを待つ
+            setDialogue(["お客さんの話を聞いています..."]);
+            setChatHistory(prev => [...prev, '--- Battle Start ---', 'SYSTEM: お客さんの話を聞いています...']);
             setDialogueIndex(0);
             setIsPlayerTurn(false);
             setInBattle(true);
+            setCurrentInteractingNpc(targetMovingNpc);
+
+            try {
+                const baseUrl = import.meta.env.VITE_APP_URL;
+
+                // APIに初回メッセージを送信
+                const response = await axios.post(`${baseUrl}/customers/messages`, {
+                    customer_id: targetMovingNpc.id,
+                    message: `店員が${machineName}の近くにいる私に話しかけてきました。${machineName}に問題があって困っています。`
+                }, {
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.data) {
+                    // APIからのレスポンスを対話として設定
+                    const customerResponse = response.data;
+                    const newDialogue = Array.isArray(customerResponse) ? customerResponse : [customerResponse];
+
+                    setDialogue(newDialogue);
+                    setChatHistory(prev => [...prev, `NPC: ${newDialogue[0]}`]);
+                    setDialogueIndex(0);
+                    setIsPlayerTurn(false);
+                } else {
+                    // APIレスポンスがない場合はフォールバック
+                    throw new Error("APIレスポンスが空です");
+                }
+            } catch (error) {
+                console.error("初回対話取得エラー:", error);
+
+                // エラー時のフォールバック（元のハードコードメッセージ）
+                let newDialogue: string[] = [];
+                const customerInfo = targetMovingNpc.customerName && targetMovingNpc.age ?
+                    `[${targetMovingNpc.customerName}さん (${targetMovingNpc.age}歳)]` : "";
+
+                if (nearbyNpc) {
+                    switch (nearbyNpc.sprite) {
+                        case '👾': newDialogue = [`${customerInfo} おい、店員！このゲーム機、コインを飲み込んだぞ！`, "金返せ！どうにかしろ！"]; break;
+                        case '🚀': newDialogue = [`${customerInfo} 店員さん！このシューティングゲーム、途中で止まった！`, "最高記録出そうだったのに！"]; break;
+                        case '🎵': newDialogue = [`${customerInfo} おい！この音ゲー、音がズレてるじゃないか！`, "パーフェクト狙ってたのに！"]; break;
+                        case '💰': newDialogue = [`${customerInfo} 両替機が壊れてる！1000円札が戻ってこない！`, "すぐに直してくれ！"]; break;
+                        case '🕹️': newDialogue = [`${customerInfo} レトロゲームのコントローラーが効かない！`, "上が押せないんだ！"]; break;
+                        case '📸': newDialogue = [`${customerInfo} プリクラ機でお金だけ取られた！`, "写真が出てこないぞ！"]; break;
+                        case '🥤': newDialogue = [`${customerInfo} 自販機でジュース買ったけど出てこない！`, "お金返して！"]; break;
+                        case 'ℹ️': newDialogue = [`${customerInfo} インフォメーションに誰もいない！`, "質問したいことがあるのに！"]; break;
+                        case '🧸':
+                        default:
+                            newDialogue = [`${customerInfo} おい、店員！このクレーンゲーム、アームが弱すぎるぞ！`, "景品が全然取れないじゃないか。どうにかしろ！"];
+                            break;
+                    }
+                } else {
+                    newDialogue = [`${customerInfo} おい、店員！なんだお前は！`, "用事があったのに忘れちまったじゃねえか！"];
+                }
+
+                setDialogue(newDialogue);
+                setChatHistory(prev => [...prev, '--- Battle Start ---', `NPC: ${newDialogue[0]}`]);
+                setDialogueIndex(0);
+                setIsPlayerTurn(false);
+                setInBattle(true);
+                setCurrentInteractingNpc(targetMovingNpc);
+            }
             // プレイヤーから話しかけた場合のみクールダウンを設定
             if (callingNpcId === null) {
                 setIsCallOnCooldown(true);
@@ -221,6 +798,7 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                 setIsPlayerTurn(false);
                 setInBattle(false);
                 setCallingNpcId(null);
+                setCurrentInteractingNpc(null); // 対話終了時にクリア
                 setIsCallOnCooldown(true);
                 setTimeout(() => setIsCallOnCooldown(false), 10000);
                 e.preventDefault();
@@ -256,17 +834,26 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
             setExitSelected(0);
         } else if (isWalkable(newPosition)) {
             setPlayerPosition(newPosition);
-            checkAndPickupMoney(newPosition);
+            // 非同期でお金の拾得をチェック
+            checkAndPickupMoney(newPosition).catch(error =>
+                console.error("お金の拾得処理でエラー:", error)
+            );
         }
     }, [playerPosition, playerDirection, dialogue, dialogueIndex, isWalkable, checkExitTile, checkAndPickupMoney, handleInteraction, movingNpcs, callingNpcId, showExitConfirm, exitSelected, onReturnToTitle]);
 
-    // 新しい客のスポーンタイマー（90秒 = 90000ms）
+    // 新しい客のスポーンタイマー（12秒 = 12000ms）
     useEffect(() => {
-        const customerSpawnTimer = setInterval(() => {
-            spawnNewCustomer();
-        }, 90000); // 1分30秒
+        console.log("顧客スポーンタイマーを開始します (12秒間隔)");
 
-        return () => clearInterval(customerSpawnTimer);
+        const customerSpawnTimer = setInterval(() => {
+            console.log("タイマー発火: spawnNewCustomer を呼び出します");
+            spawnNewCustomer();
+        }, 12000);
+
+        return () => {
+            console.log("顧客スポーンタイマーをクリアします");
+            clearInterval(customerSpawnTimer);
+        };
     }, [spawnNewCustomer]);
 
     useEffect(() => {
@@ -316,21 +903,7 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
         return () => clearInterval(gameLoop);
     }, [callingNpcId, isCallOnCooldown]);
 
-    const fetchData = async () => {
-        try {
-            const baseUrl = import.meta.env.VITE_APP_URL
-            console.log(baseUrl)
-            const response = await axios.get(baseUrl + `/player`); // "/player"エンドポイントにリクエスト
-            console.log(response);
-        } catch (error) {
-            console.error("データ取得エラー:", error);
-        }
-    };
 
-    if (debug) {
-        fetchData();
-        setDebug(false);
-    }
 
     useEffect(() => {
         window.addEventListener('keydown', handleKeyDown);
@@ -342,8 +915,27 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
         <div className="relative bg-black border-4 border-gray-600 shadow-lg" style={{ width: `${MAP_WIDTH * TILE_SIZE}px`, height: `${MAP_HEIGHT * TILE_SIZE}px` }}>
             {showChatHistory && <ChatHistory history={chatHistory} />}
             <Map layout={MAP_LAYOUT} />
-            {NPCS.map(npc => (<Npc key={npc.id} position={npc.position} sprite={npc.sprite} />))}
-            {movingNpcs.map(npc => (<Player key={npc.id} position={npc.position} direction={Direction.DOWN} color="red" isCalling={npc.id === callingNpcId} />))}
+            {NPCS.map(npc => (<Npc key={`static-${npc.id}`} position={npc.position} sprite={npc.sprite} />))}
+            {movingNpcs.map(npc => (
+                <div key={`moving-${npc.id}`} className="absolute">
+                    <Player position={npc.position} direction={Direction.DOWN} color="red" isCalling={npc.id === callingNpcId} />
+                    {npc.customerName && (
+                        <div
+                            className="absolute text-xs text-white bg-black bg-opacity-70 px-1 rounded text-center pointer-events-none"
+                            style={{
+                                left: `${npc.position.x * TILE_SIZE}px`,
+                                top: `${npc.position.y * TILE_SIZE + TILE_SIZE + 2}px`,
+                                fontSize: '10px',
+                                whiteSpace: 'nowrap',
+                                transform: 'translateX(-50%)',
+                                marginLeft: `${TILE_SIZE / 2}px`
+                            }}
+                        >
+                            {npc.customerName}
+                        </div>
+                    )}
+                </div>
+            ))}
             <Player position={playerPosition} direction={playerDirection} color="blue" />
 
             {/* 落ちているお金のキラキラエフェクト */}
@@ -422,6 +1014,10 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                     inputValue={playerInput}
                     onInputChange={(e) => setPlayerInput(e.target.value)}
                     onSubmit={handlePlayerAction}
+                    customerName={currentInteractingNpc?.customerName}
+                    customerAge={currentInteractingNpc?.age}
+                    onBanCustomer={banCustomer}
+                    showBanButton={inBattle && currentInteractingNpc !== null}
                 />
             )}
         </div>

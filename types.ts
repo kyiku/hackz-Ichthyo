@@ -24,4 +24,8 @@ export interface NpcData {
   position: Position;
   message: string[];
   sprite: string;
+  customerName?: string;
+  age?: number;
+  status?: string; // alive, dead, cursed
+  money?: number; // customer's money
 }

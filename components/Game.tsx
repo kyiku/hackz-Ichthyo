@@ -6,6 +6,7 @@ import Player from './Player';
 import Npc from './Npc';
 import DialogueBox from './DialogueBox';
 import ChatHistory from './ChatHistory';
+import axios from 'axios';
 
 interface GameProps {
   onReturnToTitle?: () => void;
@@ -35,6 +36,8 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
     const [exitSelected, setExitSelected] = useState<number>(0);
     const [droppedMoney, setDroppedMoney] = useState<DroppedMoney[]>([]);
     const [nextCustomerId, setNextCustomerId] = useState<number>(1000);
+
+    const [debug, setDebug] = useState<boolean>(true);
 
     const playerPositionRef = useRef(playerPosition);
     useEffect(() => {
@@ -132,8 +135,9 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
             case Direction.RIGHT: targetPos.x++; break;
         }
 
+        // プレイヤーから話しかける場合も処理する（callingNpcIdがnullでもOK）
         const targetMovingNpc = movingNpcs.find(npc =>
-            npc.position.x === targetPos.x && npc.position.y === targetPos.y && npc.id === callingNpcId
+            npc.position.x === targetPos.x && npc.position.y === targetPos.y
         );
         if (targetMovingNpc) {
             const { x, y } = targetMovingNpc.position;
@@ -167,9 +171,12 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
             setDialogueIndex(0);
             setIsPlayerTurn(false);
             setInBattle(true);
+            // プレイヤーから話しかけた場合のみクールダウンを設定
+            if (callingNpcId === null) {
+                setIsCallOnCooldown(true);
+                setTimeout(() => setIsCallOnCooldown(false), 10000);
+            }
             setCallingNpcId(null);
-            setIsCallOnCooldown(true);
-            setTimeout(() => setIsCallOnCooldown(false), 10000);
             return;
         }
 
@@ -309,10 +316,27 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
         return () => clearInterval(gameLoop);
     }, [callingNpcId, isCallOnCooldown]);
 
+    const fetchData = async () => {
+        try {
+            const baseUrl = import.meta.env.VITE_APP_URL
+            console.log(baseUrl)
+            const response = await axios.get(baseUrl + `/player`); // "/player"エンドポイントにリクエスト
+            console.log(response);
+        } catch (error) {
+            console.error("データ取得エラー:", error);
+        }
+    };
+
+    if (debug) {
+        fetchData();
+        setDebug(false);
+    }
+
     useEffect(() => {
         window.addEventListener('keydown', handleKeyDown);
         return () => { window.removeEventListener('keydown', handleKeyDown); };
     }, [handleKeyDown]);
+
 
     return (
         <div className="relative bg-black border-4 border-gray-600 shadow-lg" style={{ width: `${MAP_WIDTH * TILE_SIZE}px`, height: `${MAP_HEIGHT * TILE_SIZE}px` }}>
@@ -403,5 +427,37 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
         </div>
     );
 };
+
+
+const Component = () => {
+    const [data, setData] = useState(null);
+
+    useEffect(() => {
+        const fetchData = async () => {
+            try {
+                const baseUrl = process.env["url "] || ""; // .envからURLを取得
+                const response = await axios.get(`${baseUrl}/player`); // "/player"エンドポイントにリクエスト
+                setData(response.data); // データをstateに保存
+            } catch (error) {
+                console.error("データ取得エラー:", error);
+            }
+        };
+
+        fetchData();
+    }, []);
+
+    return (
+        <div>
+            {data ? (
+                <pre>{JSON.stringify(data, null, 2)}</pre>
+            ) : (
+                <p>データを読み込み中...</p>
+            )}
+        </div>
+    );
+};
+
+
+
 
 export default Game;

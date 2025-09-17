@@ -1,5 +1,6 @@
+import axios from 'axios';
+import { TileType, NpcData, Position } from './types'; // types.ts ファイルがある前提だよ
 
-import { TileType, NpcData, Position } from './types';
 
 export const TILE_SIZE = 48;
 export const MAP_WIDTH = 20;

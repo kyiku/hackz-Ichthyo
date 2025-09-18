@@ -1052,12 +1052,12 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
     };
 
     const handleKeyDown = useCallback((e: KeyboardEvent) => {
-        if (e.key.toLowerCase() === 'h') {
+        if (e.shiftKey && e.key.toLowerCase() === 'h') {
             setShowChatHistory(prev => !prev);
             return;
         }
 
-        if (e.key.toLowerCase() === 'c') {
+        if (e.shiftKey && e.key.toLowerCase() === 'c') {
             setShowCustomerTable(prev => !prev);
             return;
         }
@@ -1219,7 +1219,7 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                         </div>
 
                         <div className="mb-4 text-sm text-gray-300">
-                            <p>💡 Press 'C' key to toggle this table</p>
+                            <p>💡 Press 'SHIFT+C' key to toggle this table</p>
                             <p>Total Customers: {customerData.length}</p>
                         </div>
 

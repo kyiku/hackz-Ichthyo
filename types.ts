@@ -28,4 +28,13 @@ export interface NpcData {
   age?: number;
   status?: string; // alive, dead, cursed
   money?: number; // customer's money
+  icon_url?: string; // customer's profile image (primary)
+  icon_urls?: { // multiple URL formats for fallback
+    primary: string;
+    fallback1: string | null;
+    fallback2: string | null;
+    fallback3: string | null;
+  } | null;
+  profile?: string; // customer's profile description
+  level?: number; // customer's level
 }

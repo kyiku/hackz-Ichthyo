@@ -14,6 +14,13 @@ interface DialogueBoxProps {
   onSubmit: () => void; // 送信ボタンが押された時の関数
   customerName?: string; // 顧客名
   customerAge?: number; // 顧客の年齢
+  customerIconUrl?: string; // 顧客のアイコン画像URL
+  customerIconUrls?: { // 複数のURL形式（フォールバック用）
+    primary: string;
+    fallback1: string | null;
+    fallback2: string | null;
+    fallback3: string | null;
+  } | null;
   onBanCustomer?: () => void; // 顧客を出禁にする関数
   showBanButton?: boolean; // 出禁ボタンを表示するかどうか
 }
@@ -28,10 +35,20 @@ const DialogueBox: React.FC<DialogueBoxProps> = ({
                                                    onSubmit,
                                                    customerName,
                                                    customerAge,
+                                                   customerIconUrl,
+                                                   customerIconUrls,
                                                    onBanCustomer,
                                                    showBanButton,
                                                  }) => {
   const { transcript, isListening, startListening, stopListening, isSupported } = useSpeechRecognition();
+  const [currentImageUrl, setCurrentImageUrl] = React.useState<string | null>(customerIconUrl || null);
+  const [imageLoadAttempt, setImageLoadAttempt] = React.useState(0);
+
+  // 画像URLが変更された時に初期化
+  React.useEffect(() => {
+    setCurrentImageUrl(customerIconUrl || null);
+    setImageLoadAttempt(0);
+  }, [customerIconUrl]);
 
   React.useEffect(() => {
     if (transcript && showInput) {
@@ -56,24 +73,75 @@ const DialogueBox: React.FC<DialogueBoxProps> = ({
     }
   };
 
+  const handleImageError = () => {
+    if (customerIconUrls && imageLoadAttempt < 3) {
+      const urls = [
+        customerIconUrls.fallback1,
+        customerIconUrls.fallback2,
+        customerIconUrls.fallback3
+      ];
+
+      const nextUrl = urls[imageLoadAttempt];
+      if (nextUrl) {
+        console.log(`画像読み込み失敗、フォールバック${imageLoadAttempt + 1}を試行:`, nextUrl);
+        setCurrentImageUrl(nextUrl);
+        setImageLoadAttempt(prev => prev + 1);
+      } else {
+        console.log('全ての画像URLで読み込みに失敗しました');
+        setCurrentImageUrl(null);
+      }
+    } else {
+      console.log('画像読み込み失敗、表示をスキップします');
+      setCurrentImageUrl(null);
+    }
+  };
+
   return (
       <div className="absolute bottom-4 left-4 right-4 bg-gray-900 bg-opacity-80 border-2 border-gray-500 rounded-lg p-4 text-white shadow-lg z-20">
-        {/* 顧客情報の表示 */}
-        {customerName && customerAge && (
-          <div className="bg-purple-900 bg-opacity-50 border border-purple-500 rounded-md px-3 py-1 mb-3 text-sm text-purple-200 flex justify-between items-center">
-            <span>💬: <span className="font-bold text-white">{customerName}さん ({customerAge}歳)</span></span>
-            {showBanButton && onBanCustomer && (
-              <button
-                onClick={onBanCustomer}
-                className="bg-red-600 hover:bg-red-700 text-white text-xs px-2 py-1 rounded transition-colors duration-200"
-                title="この顧客を出禁にする"
-              >
-                🚫 出禁
-              </button>
+        <div className="flex space-x-4">
+          {/* 左側：メインコンテンツ */}
+          <div className="flex-1">
+            {/* 顧客情報の表示 */}
+            {customerName && customerAge && (
+              <div className="bg-purple-900 bg-opacity-50 border border-purple-500 rounded-md px-3 py-1 mb-3 text-sm text-purple-200 flex justify-between items-center">
+                <span>💬: <span className="font-bold text-white">{customerName}さん ({customerAge}歳)</span></span>
+                {showBanButton && onBanCustomer && (
+                  <button
+                    onClick={onBanCustomer}
+                    className="bg-red-600 hover:bg-red-700 text-white text-xs px-2 py-1 rounded transition-colors duration-200"
+                    title="この顧客を出禁にする"
+                  >
+                    🚫 出禁
+                  </button>
+                )}
+              </div>
             )}
+            <p className="text-xl mb-4">{message}</p>
           </div>
-        )}
-        <p className="text-xl mb-4">{message}</p>
+
+          {/* 右側：顧客の画像 */}
+          {currentImageUrl && (
+            <div className="flex-shrink-0 w-24 h-24">
+              <img
+                src={currentImageUrl}
+                alt={customerName ? `${customerName}さんのアイコン` : '顧客のアイコン'}
+                className="w-full h-full object-cover rounded-lg border-2 border-purple-500"
+                onError={handleImageError}
+                crossOrigin="anonymous"
+              />
+            </div>
+          )}
+
+          {/* 画像が利用できない場合のフォールバック */}
+          {!currentImageUrl && customerName && (
+            <div className="flex-shrink-0 w-24 h-24 bg-purple-800 border-2 border-purple-500 rounded-lg flex items-center justify-center">
+              <div className="text-center">
+                <div className="text-2xl">👤</div>
+                <div className="text-xs text-purple-200">{customerName.charAt(0)}</div>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* --- ↓ここから下を新しく追加 --- */}
         {showInput ? (

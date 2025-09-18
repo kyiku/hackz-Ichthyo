@@ -49,6 +49,8 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
         phase: 'casting' | 'impact' | 'result'
     } | null>(null);
     const [effectFrame, setEffectFrame] = useState<number>(0);
+    const [gameOver, setGameOver] = useState<boolean>(false);
+    const [gameOverReason, setGameOverReason] = useState<string>('');
 
     const [debug, setDebug] = useState<boolean>(true);
 
@@ -60,7 +62,7 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
     const spawnNewCustomerRef = useRef<(() => void) | null>(null);
 
     // 初期顧客のスポーン関数
-    const spawnInitialCustomers = useCallback((initialCustomers: {id: number, customer_name: string, age: number, money?: number}[]) => {
+    const spawnInitialCustomers = useCallback((initialCustomers: {id: number, customer_name: string, age: number, money?: number, icon_url?: string, profile?: string, level?: number}[]) => {
         const entrancePosition = { x: 18, y: 7 };
 
         // 初期の2体を順次スポーンさせる
@@ -82,7 +84,11 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                         customerName: customer.customer_name,
                         age: customer.age,
                         money: customer.money,
-                        status: 'alive'
+                        status: 'alive',
+                        icon_url: customer.icon_url,
+                        icon_urls: customer.icon_urls,
+                        profile: customer.profile,
+                        level: customer.level
                     };
 
                     console.log(`初期顧客をスポーン: ${customer.customer_name}さん (ID: ${customer.id})`);
@@ -111,12 +117,37 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
 
             responses.forEach((response, index) => {
                 console.log(`API応答 ${index + 1}:`, response.data);
-                if (response.data && response.data.name && response.data.age) {
+                // "No customer found" エラーの場合もログに記録
+                if (response.data && response.data.error === "No customer found") {
+                    console.log(`API応答 ${index + 1}: 顧客が見つかりません`);
+                    setChatHistory(prev => [...prev, `SYSTEM: API応答${index + 1} - 顧客データなし`]);
+                } else if (response.data && response.data.name && response.data.age) {
+                    // Google DriveのURLを直接表示用URLに変換（複数の形式を試す）
+                    const convertGoogleDriveUrl = (url: string) => {
+                        if (url && url.includes('drive.google.com')) {
+                            const fileId = url.match(/\/d\/([a-zA-Z0-9-_]+)/)?.[1];
+                            if (fileId) {
+                                // 複数のURL形式を試せるように配列で返す
+                                return {
+                                    primary: `https://drive.google.com/uc?export=view&id=${fileId}`,
+                                    fallback1: `https://drive.google.com/thumbnail?id=${fileId}&sz=w200`,
+                                    fallback2: `https://lh3.googleusercontent.com/d/${fileId}=w200`,
+                                    fallback3: `https://drive.google.com/file/d/${fileId}/view`
+                                };
+                            }
+                        }
+                        return { primary: url, fallback1: null, fallback2: null, fallback3: null };
+                    };
+
                     const customerInfo = {
                         id: response.data.id,
                         customer_name: response.data.name,
                         age: response.data.age,
-                        money: response.data.money || Math.floor(Math.random() * 10000) + 1000 // APIにmoneyがない場合はランダム生成
+                        money: response.data.money || Math.floor(Math.random() * 10000) + 1000, // APIにmoneyがない場合はランダム生成
+                        icon_url: response.data.icon_url ? convertGoogleDriveUrl(response.data.icon_url).primary : null, // 顧客の画像URL（プライマリ）
+                        icon_urls: response.data.icon_url ? convertGoogleDriveUrl(response.data.icon_url) : null, // 全てのURL形式
+                        profile: response.data.profile, // 顧客のプロフィール
+                        level: response.data.level // 顧客のレベル
                     };
                     allCustomerData.push(customerInfo);
                     console.log(`顧客情報作成:`, customerInfo);
@@ -125,6 +156,11 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                     console.log(`API応答 ${index + 1} が不完全です:`, response.data);
                 }
             });
+
+            // 有効な顧客データがない場合は例外を投げてcatchブロックに移行
+            if (allCustomerData.length === 0) {
+                throw new Error("有効な顧客データが取得できませんでした");
+            }
 
             setCustomerData(allCustomerData);
             console.log("全顧客データ設定完了:", allCustomerData);
@@ -137,7 +173,10 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
             setMovingNpcs([]);
             console.log("全顧客を店外状態に設定しました");
 
-
+            // 最初の2体だけスポーン処理で入店させる
+            setTimeout(() => {
+                spawnInitialCustomers(allCustomerData.slice(0, 2));
+            }, 1000); // 1秒後に最初の2体をスポーン
 
             // チャット履歴にステータスリセットメッセージを追加
             setChatHistory(prev => [...prev, 'SYSTEM: ゲーム開始 - 全顧客を店外状態に設定し、2体の初期顧客が間もなく来店します。']);
@@ -147,14 +186,14 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
 
             // API失敗時のフォールバックデータ（より多く設定）
             const fallbackCustomerData = [
-                { id: 1001, customer_name: "田中太郎", age: 25, money: 5000 },
-                { id: 1002, customer_name: "佐藤花子", age: 30, money: 8000 },
-                { id: 1003, customer_name: "山田次郎", age: 22, money: 3500 },
-                { id: 1004, customer_name: "鈴木美咲", age: 28, money: 7200 },
-                { id: 1005, customer_name: "高橋一郎", age: 35, money: 6500 },
-                { id: 1006, customer_name: "中村清子", age: 24, money: 4800 },
-                { id: 1007, customer_name: "小林健一", age: 31, money: 9200 },
-                { id: 1008, customer_name: "加藤美香", age: 27, money: 5800 }
+                { id: 1001, customer_name: "田中太郎", age: 25, money: 5000, icon_url: null, profile: "ゲーム好きのサラリーマン", level: 50 },
+                { id: 1002, customer_name: "佐藤花子", age: 30, money: 8000, icon_url: null, profile: "アーケードゲームのベテラン", level: 75 },
+                { id: 1003, customer_name: "山田次郎", age: 22, money: 3500, icon_url: null, profile: "大学生で格ゲー好き", level: 30 },
+                { id: 1004, customer_name: "鈴木美咲", age: 28, money: 7200, icon_url: null, profile: "音ゲーが得意なOL", level: 85 },
+                { id: 1005, customer_name: "高橋一郎", age: 35, money: 6500, icon_url: null, profile: "クレーンゲーム愛好家", level: 60 },
+                { id: 1006, customer_name: "中村清子", age: 24, money: 4800, icon_url: null, profile: "パズルゲームマニア", level: 40 },
+                { id: 1007, customer_name: "小林健一", age: 31, money: 9200, icon_url: null, profile: "シューティングゲームの達人", level: 90 },
+                { id: 1008, customer_name: "加藤美香", age: 27, money: 5800, icon_url: null, profile: "レースゲーム好きの会社員", level: 55 }
             ];
 
             setCustomerData(fallbackCustomerData);
@@ -286,7 +325,11 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                     customerName: randomCustomer.customer_name,
                     age: randomCustomer.age,
                     money: randomCustomer.money,
-                    status: 'alive' // 新規スポーン時は常に生存状態
+                    status: 'alive', // 新規スポーン時は常に生存状態
+                    icon_url: randomCustomer.icon_url,
+                    icon_urls: randomCustomer.icon_urls,
+                    profile: randomCustomer.profile,
+                    level: randomCustomer.level
                 };
 
                 console.log(`新しい顧客をスポーン: ${randomCustomer.customer_name}さん (ID: ${randomCustomer.id})`);
@@ -318,14 +361,28 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                     const newFrame = prev + 1;
 
                     // フェーズ遷移の管理
-                    if (newFrame === 30) { // 1秒後に詠唱→発動
-                        setMagicEffect(current => current ? {...current, phase: 'impact'} : null);
-                    } else if (newFrame === 90) { // 3秒後に発動→結果
-                        setMagicEffect(current => current ? {...current, phase: 'result'} : null);
-                    } else if (newFrame >= 150) { // 5秒後に終了
-                        setMagicEffect(null);
-                        setEffectFrame(0);
-                        return 0;
+                    if (magicEffect?.type === 'destruction') {
+                        // バルス魔法の特別なタイミング
+                        if (newFrame === 60) { // 2秒後に詠唱→発動
+                            setMagicEffect(current => current ? {...current, phase: 'impact'} : null);
+                        } else if (newFrame === 150) { // 5秒後に発動→結果
+                            setMagicEffect(current => current ? {...current, phase: 'result'} : null);
+                        } else if (newFrame >= 240) { // 8秒後に終了
+                            setMagicEffect(null);
+                            setEffectFrame(0);
+                            return 0;
+                        }
+                    } else {
+                        // 通常魔法のタイミング
+                        if (newFrame === 30) { // 1秒後に詠唱→発動
+                            setMagicEffect(current => current ? {...current, phase: 'impact'} : null);
+                        } else if (newFrame === 90) { // 3秒後に発動→結果
+                            setMagicEffect(current => current ? {...current, phase: 'result'} : null);
+                        } else if (newFrame >= 150) { // 5秒後に終了
+                            setMagicEffect(null);
+                            setEffectFrame(0);
+                            return 0;
+                        }
                     }
 
                     return newFrame;
@@ -338,6 +395,29 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
 
     const handlePlayerAction = async () => {
         setChatHistory(prev => [...prev, `Player: ${playerInput}`]);
+
+        // バルス魔法の特別処理
+        if (playerInput.trim().toLowerCase() === 'バルス！' || playerInput.trim().toLowerCase() === 'balus') {
+            // バルス魔法による店舗破壊とゲームオーバー
+            setMagicEffect({
+                type: 'destruction',
+                message: 'バルス！！！',
+                duration: 8000,
+                phase: 'casting'
+            });
+            setEffectFrame(0);
+
+            // 少し遅れてゲームオーバーを設定
+            setTimeout(() => {
+                setGameOver(true);
+                setGameOverReason('バルス魔法により店舗が完全に破壊されました...');
+            }, 6000);
+
+            setPlayerInput('');
+            setChatHistory(prev => [...prev, 'SYSTEM: バルス魔法が発動！店舗が崩壊し始めます...']);
+            return;
+        }
+
 
         // まず魔法の判定を行う
         const magicEffect = await checkMagicSpell(playerInput);
@@ -1296,7 +1376,13 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
 
                                     {/* 詠唱テキスト */}
                                     <div className="mt-8 text-white text-2xl font-bold animate-pulse">
-                                        魔法を詠唱中...
+                                        {magicEffect.type === 'destruction' ?
+                                            <div className="text-orange-400 text-3xl">
+                                                ⚠️ 禁断の魔法を詠唱中... ⚠️<br/>
+                                                <span className="text-red-500 text-4xl animate-bounce">バルス！！！</span>
+                                            </div>
+                                            : '魔法を詠唱中...'
+                                        }
                                     </div>
                                 </div>
                             </div>
@@ -1390,6 +1476,87 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                 </div>
             )}
 
+            {/* ゲームオーバー画面 */}
+            {gameOver && (
+                <div className="absolute inset-0 bg-black bg-opacity-95 flex items-center justify-center z-50">
+                    <div className="text-center text-white font-mono">
+                        {/* 崩壊する店舗のエフェクト */}
+                        <div className="mb-8">
+                            {Array.from({ length: 20 }).map((_, i) => (
+                                <div
+                                    key={i}
+                                    className="absolute text-6xl animate-bounce text-orange-500"
+                                    style={{
+                                        left: `${Math.random() * 100}%`,
+                                        top: `${Math.random() * 100}%`,
+                                        animationDelay: `${Math.random() * 3}s`,
+                                        animationDuration: `${Math.random() * 2 + 1}s`
+                                    }}
+                                >
+                                    🏢💥
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* ゲームオーバーテキスト */}
+                        <div className="relative z-10">
+                            <h1 className="text-8xl font-bold text-red-500 mb-6 animate-pulse"
+                                style={{ textShadow: '4px 4px 0 #000, 2px 2px 0 #ff0000' }}>
+                                GAME OVER
+                            </h1>
+
+                            <div className="text-4xl text-orange-400 mb-4 animate-bounce">
+                                🏗️💥 店舗崩壊 💥🏗️
+                            </div>
+
+                            <p className="text-2xl text-white mb-8 max-w-2xl mx-auto leading-relaxed">
+                                {gameOverReason}
+                            </p>
+
+                            <div className="text-lg text-gray-300 mb-6">
+                                <p>禁断の魔法「バルス」により、</p>
+                                <p>あなたの経営するゲームセンターは</p>
+                                <p>跡形もなく消し飛んでしまいました...</p>
+                            </div>
+
+                            <div className="space-y-4">
+                                <button
+                                    onClick={() => {
+                                        setGameOver(false);
+                                        setGameOverReason('');
+                                        // ゲームをリセット
+                                        setPlayerPosition(PLAYER_START_POSITION);
+                                        setMovingNpcs([]);
+                                        setCustomerData([]);
+                                        setBannedCustomers(new Set());
+                                        setDialogue(null);
+                                        setMagicEffect(null);
+                                        setChatHistory(['SYSTEM: ゲームがリセットされました。新しい店舗で再開します！']);
+                                        setDebug(true); // データを再取得
+                                    }}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg text-xl transition-colors duration-200 mr-4"
+                                >
+                                    🔄 再挑戦
+                                </button>
+
+                                {onReturnToTitle && (
+                                    <button
+                                        onClick={onReturnToTitle}
+                                        className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-8 rounded-lg text-xl transition-colors duration-200"
+                                    >
+                                        🏠 タイトルへ
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="mt-8 text-sm text-gray-500">
+                                <p>ヒント: 「バルス」は使用禁止魔法です</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {dialogue && (
                 <DialogueBox
                     message={dialogue[dialogueIndex]}
@@ -1401,6 +1568,8 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                     onSubmit={handlePlayerAction}
                     customerName={currentInteractingNpc?.customerName}
                     customerAge={currentInteractingNpc?.age}
+                    customerIconUrl={currentInteractingNpc?.icon_url}
+                    customerIconUrls={currentInteractingNpc?.icon_urls}
                     onBanCustomer={banCustomer}
                     showBanButton={inBattle && currentInteractingNpc !== null}
                 />

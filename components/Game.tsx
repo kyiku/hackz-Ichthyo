@@ -42,6 +42,13 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
     const [customerData, setCustomerData] = useState<{id: number, customer_name: string, age: number, money?: number}[]>([]);
     const [currentMoney, setCurrentMoney] = useState<number>(0);
     const [playerId, setPlayerId] = useState<number>(1); // プレイヤーIDを追加
+    const [magicEffect, setMagicEffect] = useState<{
+        type: string,
+        message: string,
+        duration: number,
+        phase: 'casting' | 'impact' | 'result'
+    } | null>(null);
+    const [effectFrame, setEffectFrame] = useState<number>(0);
 
     const [debug, setDebug] = useState<boolean>(true);
 
@@ -303,6 +310,32 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
         spawnNewCustomerRef.current = spawnNewCustomer;
     }, [spawnNewCustomer]);
 
+    // RPGツクール風フレームアニメーション
+    useEffect(() => {
+        if (magicEffect) {
+            const frameInterval = setInterval(() => {
+                setEffectFrame(prev => {
+                    const newFrame = prev + 1;
+
+                    // フェーズ遷移の管理
+                    if (newFrame === 30) { // 1秒後に詠唱→発動
+                        setMagicEffect(current => current ? {...current, phase: 'impact'} : null);
+                    } else if (newFrame === 90) { // 3秒後に発動→結果
+                        setMagicEffect(current => current ? {...current, phase: 'result'} : null);
+                    } else if (newFrame >= 150) { // 5秒後に終了
+                        setMagicEffect(null);
+                        setEffectFrame(0);
+                        return 0;
+                    }
+
+                    return newFrame;
+                });
+            }, 33); // 30FPS
+
+            return () => clearInterval(frameInterval);
+        }
+    }, [magicEffect]);
+
     const handlePlayerAction = async () => {
         setChatHistory(prev => [...prev, `Player: ${playerInput}`]);
 
@@ -312,6 +345,15 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
             // 魔法が発動した場合
             const magicResult = executeMagicEffect(magicEffect);
             if (magicResult && magicResult.success) {
+                // RPGツクール風の3段階エフェクト開始
+                setMagicEffect({
+                    type: magicResult.effectType || 'general',
+                    message: magicResult.message || '魔法が発動しました！',
+                    duration: 5000,
+                    phase: 'casting'
+                });
+                setEffectFrame(0);
+
                 if (magicResult.effectType === "death") {
                     // 死亡効果の場合は具体的な効果文章と獲得金額を表示して会話終了
                     const moneyMessage = magicResult.money > 0 ? ` ${magicResult.money}円を獲得！` : '';
@@ -603,6 +645,12 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                     setCurrentMoney(prev => prev + amount);
                     setChatHistory(prev => [...prev, `✨魔法効果✨: ${amount}円を獲得しました！`]);
                 }
+                return {
+                    success: true,
+                    effectType: "money",
+                    message: `${amount}円を獲得しました！`,
+                    money: amount
+                };
             } else {
                 // カスタム効果メッセージ
                 setChatHistory(prev => [...prev, `✨魔法効果✨: ${effectMessage}`]);
@@ -1164,6 +1212,181 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                         </div>
                         <p className="text-xs text-gray-400 mt-4">←→キーで選択、ENTERで決定</p>
                     </div>
+                </div>
+            )}
+
+            {/* RPGツクール風魔法エフェクト */}
+            {magicEffect && (
+                <div className="absolute inset-0 pointer-events-none z-40">
+                    {/* 詠唱フェーズ */}
+                    {magicEffect.phase === 'casting' && (
+                        <div className="absolute inset-0 bg-black bg-opacity-50">
+                            <div className="absolute inset-0 flex items-center justify-center">
+                                <div className="text-center">
+                                    {/* 魔法陣 */}
+                                    <div
+                                        className={`
+                                            w-64 h-64 border-4 rounded-full relative
+                                            ${magicEffect.type === 'death' ? 'border-red-500' : ''}
+                                            ${magicEffect.type === 'survival' ? 'border-blue-500' : ''}
+                                            ${magicEffect.type === 'curse' ? 'border-purple-500' : ''}
+                                            ${magicEffect.type === 'money' ? 'border-yellow-500' : ''}
+                                            ${magicEffect.type === 'general' ? 'border-green-500' : ''}
+                                        `}
+                                        style={{
+                                            animation: 'spin 3s linear infinite'
+                                        }}
+                                    >
+                                        {/* 内側の魔法陣 */}
+                                        <div
+                                            className={`
+                                                absolute inset-4 border-2 rounded-full
+                                                ${magicEffect.type === 'death' ? 'border-red-400' : ''}
+                                                ${magicEffect.type === 'survival' ? 'border-blue-400' : ''}
+                                                ${magicEffect.type === 'curse' ? 'border-purple-400' : ''}
+                                                ${magicEffect.type === 'money' ? 'border-yellow-400' : ''}
+                                                ${magicEffect.type === 'general' ? 'border-green-400' : ''}
+                                            `}
+                                            style={{
+                                                animation: 'spin 2s linear infinite reverse'
+                                            }}
+                                        >
+                                            {/* 魔法陣の中心 */}
+                                            <div className="absolute inset-0 flex items-center justify-center">
+                                                <div className={`
+                                                    text-6xl animate-pulse
+                                                    ${magicEffect.type === 'death' ? 'text-red-300' : ''}
+                                                    ${magicEffect.type === 'survival' ? 'text-blue-300' : ''}
+                                                    ${magicEffect.type === 'curse' ? 'text-purple-300' : ''}
+                                                    ${magicEffect.type === 'money' ? 'text-yellow-300' : ''}
+                                                    ${magicEffect.type === 'general' ? 'text-green-300' : ''}
+                                                `}>
+                                                    {magicEffect.type === 'death' && '☠️'}
+                                                    {magicEffect.type === 'survival' && '⚡'}
+                                                    {magicEffect.type === 'curse' && '🔮'}
+                                                    {magicEffect.type === 'money' && '💰'}
+                                                    {magicEffect.type === 'general' && '✨'}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* 魔法陣の星 */}
+                                        {Array.from({ length: 8 }).map((_, i) => (
+                                            <div
+                                                key={i}
+                                                className={`
+                                                    absolute w-4 h-4 text-2xl animate-pulse
+                                                    ${magicEffect.type === 'death' ? 'text-red-400' : ''}
+                                                    ${magicEffect.type === 'survival' ? 'text-blue-400' : ''}
+                                                    ${magicEffect.type === 'curse' ? 'text-purple-400' : ''}
+                                                    ${magicEffect.type === 'money' ? 'text-yellow-400' : ''}
+                                                    ${magicEffect.type === 'general' ? 'text-green-400' : ''}
+                                                `}
+                                                style={{
+                                                    top: `${50 + 40 * Math.cos((i * Math.PI * 2) / 8)}%`,
+                                                    left: `${50 + 40 * Math.sin((i * Math.PI * 2) / 8)}%`,
+                                                    transform: 'translate(-50%, -50%)',
+                                                    animationDelay: `${i * 0.1}s`
+                                                }}
+                                            >
+                                                ★
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* 詠唱テキスト */}
+                                    <div className="mt-8 text-white text-2xl font-bold animate-pulse">
+                                        魔法を詠唱中...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 発動フェーズ */}
+                    {magicEffect.phase === 'impact' && (
+                        <div className="absolute inset-0">
+                            {/* フラッシュエフェクト */}
+                            <div className={`
+                                absolute inset-0 animate-pulse
+                                ${magicEffect.type === 'death' ? 'bg-red-500' : ''}
+                                ${magicEffect.type === 'survival' ? 'bg-blue-500' : ''}
+                                ${magicEffect.type === 'curse' ? 'bg-purple-500' : ''}
+                                ${magicEffect.type === 'money' ? 'bg-yellow-500' : ''}
+                                ${magicEffect.type === 'general' ? 'bg-green-500' : ''}
+                            `} style={{ opacity: Math.sin(effectFrame * 0.5) * 0.3 + 0.3 }} />
+
+                            {/* 爆発エフェクト */}
+                            <div className="absolute inset-0 flex items-center justify-center">
+                                {Array.from({ length: 30 }).map((_, i) => {
+                                    const angle = (i * Math.PI * 2) / 30;
+                                    const distance = (effectFrame - 30) * 5;
+                                    return (
+                                        <div
+                                            key={i}
+                                            className={`
+                                                absolute text-4xl animate-ping
+                                                ${magicEffect.type === 'death' ? 'text-red-400' : ''}
+                                                ${magicEffect.type === 'survival' ? 'text-blue-400' : ''}
+                                                ${magicEffect.type === 'curse' ? 'text-purple-400' : ''}
+                                                ${magicEffect.type === 'money' ? 'text-yellow-400' : ''}
+                                                ${magicEffect.type === 'general' ? 'text-green-400' : ''}
+                                            `}
+                                            style={{
+                                                left: `${50 + Math.cos(angle) * distance / 5}%`,
+                                                top: `${50 + Math.sin(angle) * distance / 5}%`,
+                                                transform: 'translate(-50%, -50%)',
+                                                opacity: Math.max(0, 1 - distance / 100)
+                                            }}
+                                        >
+                                            ✨
+                                        </div>
+                                    );
+                                })}
+
+                                {/* 中央の大爆発 */}
+                                <div className={`
+                                    text-9xl font-bold animate-bounce
+                                    ${magicEffect.type === 'death' ? 'text-red-300' : ''}
+                                    ${magicEffect.type === 'survival' ? 'text-blue-300' : ''}
+                                    ${magicEffect.type === 'curse' ? 'text-purple-300' : ''}
+                                    ${magicEffect.type === 'money' ? 'text-yellow-300' : ''}
+                                    ${magicEffect.type === 'general' ? 'text-green-300' : ''}
+                                `}>
+                                    {magicEffect.type === 'death' && '💥'}
+                                    {magicEffect.type === 'survival' && '⚡'}
+                                    {magicEffect.type === 'curse' && '🌀'}
+                                    {magicEffect.type === 'money' && '💰'}
+                                    {magicEffect.type === 'general' && '✨'}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 結果フェーズ */}
+                    {magicEffect.phase === 'result' && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-70">
+                            <div className={`
+                                text-center p-8 rounded-lg border-4 bg-opacity-90
+                                ${magicEffect.type === 'death' ? 'bg-red-900 border-red-500' : ''}
+                                ${magicEffect.type === 'survival' ? 'bg-blue-900 border-blue-500' : ''}
+                                ${magicEffect.type === 'curse' ? 'bg-purple-900 border-purple-500' : ''}
+                                ${magicEffect.type === 'money' ? 'bg-yellow-900 border-yellow-500' : ''}
+                                ${magicEffect.type === 'general' ? 'bg-green-900 border-green-500' : ''}
+                            `}>
+                                <div className="text-6xl mb-4 animate-pulse">
+                                    {magicEffect.type === 'death' && '💀'}
+                                    {magicEffect.type === 'survival' && '⚡'}
+                                    {magicEffect.type === 'curse' && '🌀'}
+                                    {magicEffect.type === 'money' && '💰'}
+                                    {magicEffect.type === 'general' && '✨'}
+                                </div>
+                                <div className="text-white text-3xl font-bold max-w-2xl">
+                                    {magicEffect.message}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

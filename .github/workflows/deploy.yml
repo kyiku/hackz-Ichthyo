@@ -13,6 +13,7 @@ env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   S3_BUCKET: ${{ secrets.S3_BUCKET }}
   CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+  VITE_APP_URL: ${{ vars.VITE_APP_URL }}  
 
 concurrency:
   group: deploy-release
@@ -52,14 +53,28 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Sync files to S3
-        run: aws s3 sync ./dist s3://$S3_BUCKET --delete
-
-      - name: Set index.html cache control
+      - name: Sync files to S3 with correct content types
         run: |
-          aws s3 cp s3://$S3_BUCKET/index.html s3://$S3_BUCKET/index.html \
-            --cache-control "no-cache, no-store, must-revalidate" \
-            --metadata-directive REPLACE
+          aws s3 sync ./dist s3://$S3_BUCKET --delete \
+            --exclude "*.html" \
+            --exclude "*.js" \
+            --exclude "*.css"
+          
+          aws s3 sync ./dist s3://$S3_BUCKET \
+            --exclude "*" \
+            --include "*.html" \
+            --content-type "text/html" \
+            --cache-control "no-cache, no-store, must-revalidate"
+          
+          aws s3 sync ./dist s3://$S3_BUCKET \
+            --exclude "*" \
+            --include "*.js" \
+            --content-type "text/javascript"
+          
+          aws s3 sync ./dist s3://$S3_BUCKET \
+            --exclude "*" \
+            --include "*.css" \
+            --content-type "text/css"
 
       - name: Invalidate CloudFront
         run: aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_DISTRIBUTION_ID --paths "/*"

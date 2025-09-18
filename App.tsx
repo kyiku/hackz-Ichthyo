@@ -21,7 +21,7 @@ const App: React.FC = () => {
   const handleMoneyChange = (amount: number) => {
     setMoney(prev => {
       const newAmount = prev + amount;
-      if (newAmount >= 10000 && !gameCleared) {
+      if (newAmount >= 5000 && !gameCleared) {
         setGameCleared(true);
       }
       return newAmount;

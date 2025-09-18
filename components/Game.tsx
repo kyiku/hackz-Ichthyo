@@ -418,6 +418,88 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
             return;
         }
 
+        // インセンディオ（炎の魔法）の特別処理
+        if (playerInput.trim().toLowerCase() === 'インセンディオ' ||
+            playerInput.trim().toLowerCase() === 'incendio' ||
+            playerInput.trim().toLowerCase() === 'いんせんでぃお') {
+
+            // 炎の魔法エフェクト
+            setMagicEffect({
+                type: 'fire',
+                message: '🔥 インセンディオ！店内が炎に包まれた！ 🔥',
+                duration: 5000,
+                phase: 'casting'
+            });
+            setEffectFrame(0);
+
+            // 炎ダメージ処理（現在対話中のNPCにダメージ）
+            if (currentInteractingNpc) {
+                // 顧客を炎上状態にする
+                setMovingNpcs(prev => prev.map(npc =>
+                    npc.id === currentInteractingNpc.id
+                        ? { ...npc, status: 'burned' }
+                        : npc
+                ));
+
+                // 少し遅れて顧客の反応を表示
+                setTimeout(async () => {
+                    setChatHistory(prev => [...prev, `SYSTEM: ${currentInteractingNpc.customerName}さんは炎に包まれた！`]);
+
+                    try {
+                        // APIに「*あなたは燃えました*」のメッセージを送信
+                        const baseUrl = import.meta.env.VITE_APP_URL;
+                        console.log('インセンディオ API呼び出し開始:', {
+                            baseUrl,
+                            message: "*あなたは燃えました*",
+                            customer_id: currentInteractingNpc.id,
+                            customerName: currentInteractingNpc.customerName
+                        });
+
+                        const response = await axios.post(`${baseUrl}/customers/messages`, {
+                            message: "*あなたは燃えました*",
+                            customer_id: currentInteractingNpc.id
+                        }, {
+                            headers: {
+                                'Content-Type': 'application/json'
+                            }
+                        });
+
+                        console.log('インセンディオ API応答:', {
+                            status: response.status,
+                            data: response.data,
+                            dataType: typeof response.data
+                        });
+
+                        const apiResponse = response.data;
+
+                        // APIからの応答を顧客の反応として表示
+                        setDialogue([apiResponse]);
+                        setDialogueIndex(0);
+                        setInBattle(true);
+                        setIsPlayerTurn(false);
+
+                    } catch (error) {
+                        console.error("炎魔法API呼び出しエラー:", error);
+                        console.error("エラー詳細:", {
+                            message: error.message,
+                            response: error.response?.data,
+                            status: error.response?.status
+                        });
+                        // エラーの場合はデフォルトメッセージを表示
+                        setDialogue(['*あなたは燃えました*']);
+                        setDialogueIndex(0);
+                        setInBattle(true);
+                        setIsPlayerTurn(false);
+                    }
+                }, 3000);
+            } else {
+                // NPCがいない場合は店内を燃やす
+                setChatHistory(prev => [...prev, 'SYSTEM: 炎の魔法が発動！店内が一瞬炎に包まれた！']);
+            }
+
+            setPlayerInput('');
+            return;
+        }
 
         // まず魔法の判定を行う
         const magicEffect = await checkMagicSpell(playerInput);
@@ -1312,6 +1394,8 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                                             ${magicEffect.type === 'curse' ? 'border-purple-500' : ''}
                                             ${magicEffect.type === 'money' ? 'border-yellow-500' : ''}
                                             ${magicEffect.type === 'general' ? 'border-green-500' : ''}
+                                            ${magicEffect.type === 'destruction' ? 'border-orange-500' : ''}
+                                            ${magicEffect.type === 'fire' ? 'border-red-600' : ''}
                                         `}
                                         style={{
                                             animation: 'spin 3s linear infinite'
@@ -1326,6 +1410,8 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                                                 ${magicEffect.type === 'curse' ? 'border-purple-400' : ''}
                                                 ${magicEffect.type === 'money' ? 'border-yellow-400' : ''}
                                                 ${magicEffect.type === 'general' ? 'border-green-400' : ''}
+                                                ${magicEffect.type === 'destruction' ? 'border-orange-400' : ''}
+                                                ${magicEffect.type === 'fire' ? 'border-red-400' : ''}
                                             `}
                                             style={{
                                                 animation: 'spin 2s linear infinite reverse'
@@ -1340,12 +1426,16 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                                                     ${magicEffect.type === 'curse' ? 'text-purple-300' : ''}
                                                     ${magicEffect.type === 'money' ? 'text-yellow-300' : ''}
                                                     ${magicEffect.type === 'general' ? 'text-green-300' : ''}
+                                                    ${magicEffect.type === 'destruction' ? 'text-orange-300' : ''}
+                                                    ${magicEffect.type === 'fire' ? 'text-red-300' : ''}
                                                 `}>
                                                     {magicEffect.type === 'death' && '☠️'}
                                                     {magicEffect.type === 'survival' && '⚡'}
                                                     {magicEffect.type === 'curse' && '🔮'}
                                                     {magicEffect.type === 'money' && '💰'}
                                                     {magicEffect.type === 'general' && '✨'}
+                                                    {magicEffect.type === 'destruction' && '💥'}
+                                                    {magicEffect.type === 'fire' && '🔥'}
                                                 </div>
                                             </div>
                                         </div>
@@ -1361,6 +1451,8 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                                                     ${magicEffect.type === 'curse' ? 'text-purple-400' : ''}
                                                     ${magicEffect.type === 'money' ? 'text-yellow-400' : ''}
                                                     ${magicEffect.type === 'general' ? 'text-green-400' : ''}
+                                                    ${magicEffect.type === 'destruction' ? 'text-orange-400' : ''}
+                                                    ${magicEffect.type === 'fire' ? 'text-red-400' : ''}
                                                 `}
                                                 style={{
                                                     top: `${50 + 40 * Math.cos((i * Math.PI * 2) / 8)}%`,
@@ -1381,11 +1473,56 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                                                 ⚠️ 禁断の魔法を詠唱中... ⚠️<br/>
                                                 <span className="text-red-500 text-4xl animate-bounce">バルス！！！</span>
                                             </div>
+                                            : magicEffect.type === 'fire' ?
+                                            <div className="text-red-400 text-3xl">
+                                                🔥 炎の魔法を詠唱中... 🔥<br/>
+                                                <span className="text-orange-500 text-4xl animate-bounce">インセンディオ！！！</span>
+                                            </div>
                                             : '魔法を詠唱中...'
                                         }
                                     </div>
                                 </div>
                             </div>
+                        </div>
+                    )}
+
+                    {/* 炎魔法の特別な燃え上がりエフェクト */}
+                    {magicEffect && magicEffect.type === 'fire' && (
+                        <div className="absolute inset-0 pointer-events-none">
+                            {/* 画面から上昇する炎の粒子 */}
+                            {Array.from({ length: 15 }).map((_, i) => (
+                                <div
+                                    key={i}
+                                    className="absolute text-4xl animate-bounce"
+                                    style={{
+                                        left: `${Math.random() * 100}%`,
+                                        bottom: `${-10 + (effectFrame * 2) % 120}%`,
+                                        color: Math.random() > 0.5 ? '#ef4444' : '#f97316',
+                                        animationDelay: `${Math.random() * 2}s`,
+                                        animationDuration: `${Math.random() * 1 + 0.5}s`,
+                                        opacity: Math.max(0, 1 - (effectFrame * 2 % 120) / 100)
+                                    }}
+                                >
+                                    🔥
+                                </div>
+                            ))}
+
+                            {/* 地面から湧き上がる炎 */}
+                            {Array.from({ length: 20 }).map((_, i) => (
+                                <div
+                                    key={`ground-${i}`}
+                                    className="absolute text-6xl animate-pulse"
+                                    style={{
+                                        left: `${(i * 5) % 100}%`,
+                                        bottom: '0%',
+                                        color: `hsl(${Math.random() * 60}, 100%, 50%)`,
+                                        animationDelay: `${i * 0.1}s`,
+                                        transform: `scale(${Math.sin(effectFrame * 0.2 + i) * 0.3 + 0.7})`
+                                    }}
+                                >
+                                    🔥
+                                </div>
+                            ))}
                         </div>
                     )}
 
@@ -1400,6 +1537,8 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                                 ${magicEffect.type === 'curse' ? 'bg-purple-500' : ''}
                                 ${magicEffect.type === 'money' ? 'bg-yellow-500' : ''}
                                 ${magicEffect.type === 'general' ? 'bg-green-500' : ''}
+                                ${magicEffect.type === 'destruction' ? 'bg-orange-500' : ''}
+                                ${magicEffect.type === 'fire' ? 'bg-red-500' : ''}
                             `} style={{ opacity: Math.sin(effectFrame * 0.5) * 0.3 + 0.3 }} />
 
                             {/* 爆発エフェクト */}
@@ -1417,6 +1556,8 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                                                 ${magicEffect.type === 'curse' ? 'text-purple-400' : ''}
                                                 ${magicEffect.type === 'money' ? 'text-yellow-400' : ''}
                                                 ${magicEffect.type === 'general' ? 'text-green-400' : ''}
+                                                ${magicEffect.type === 'destruction' ? 'text-orange-400' : ''}
+                                                ${magicEffect.type === 'fire' ? 'text-red-400' : ''}
                                             `}
                                             style={{
                                                 left: `${50 + Math.cos(angle) * distance / 5}%`,
@@ -1425,7 +1566,7 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                                                 opacity: Math.max(0, 1 - distance / 100)
                                             }}
                                         >
-                                            ✨
+                                            {magicEffect.type === 'fire' ? '🔥' : '✨'}
                                         </div>
                                     );
                                 })}
@@ -1438,12 +1579,16 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                                     ${magicEffect.type === 'curse' ? 'text-purple-300' : ''}
                                     ${magicEffect.type === 'money' ? 'text-yellow-300' : ''}
                                     ${magicEffect.type === 'general' ? 'text-green-300' : ''}
+                                    ${magicEffect.type === 'destruction' ? 'text-orange-300' : ''}
+                                    ${magicEffect.type === 'fire' ? 'text-red-300' : ''}
                                 `}>
                                     {magicEffect.type === 'death' && '💥'}
                                     {magicEffect.type === 'survival' && '⚡'}
                                     {magicEffect.type === 'curse' && '🌀'}
                                     {magicEffect.type === 'money' && '💰'}
                                     {magicEffect.type === 'general' && '✨'}
+                                    {magicEffect.type === 'destruction' && '💥'}
+                                    {magicEffect.type === 'fire' && '🔥'}
                                 </div>
                             </div>
                         </div>
@@ -1459,6 +1604,8 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                                 ${magicEffect.type === 'curse' ? 'bg-purple-900 border-purple-500' : ''}
                                 ${magicEffect.type === 'money' ? 'bg-yellow-900 border-yellow-500' : ''}
                                 ${magicEffect.type === 'general' ? 'bg-green-900 border-green-500' : ''}
+                                ${magicEffect.type === 'destruction' ? 'bg-orange-900 border-orange-500' : ''}
+                                ${magicEffect.type === 'fire' ? 'bg-red-900 border-red-500' : ''}
                             `}>
                                 <div className="text-6xl mb-4 animate-pulse">
                                     {magicEffect.type === 'death' && '💀'}
@@ -1466,6 +1613,8 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                                     {magicEffect.type === 'curse' && '🌀'}
                                     {magicEffect.type === 'money' && '💰'}
                                     {magicEffect.type === 'general' && '✨'}
+                                    {magicEffect.type === 'destruction' && '💥'}
+                                    {magicEffect.type === 'fire' && '🔥'}
                                 </div>
                                 <div className="text-white text-3xl font-bold max-w-2xl">
                                     {magicEffect.message}

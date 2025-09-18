@@ -41,14 +41,27 @@ const DialogueBox: React.FC<DialogueBoxProps> = ({
                                                    showBanButton,
                                                  }) => {
   const { transcript, isListening, startListening, stopListening, isSupported } = useSpeechRecognition();
-  const [currentImageUrl, setCurrentImageUrl] = React.useState<string | null>(customerIconUrl || null);
+  const [currentImageUrl, setCurrentImageUrl] = React.useState<string | null>(null);
   const [imageLoadAttempt, setImageLoadAttempt] = React.useState(0);
 
   // 画像URLが変更された時に初期化
   React.useEffect(() => {
-    setCurrentImageUrl(customerIconUrl || null);
+    console.log('DialogueBox 画像URL更新:', {
+      customerIconUrl,
+      customerIconUrls,
+      customerName
+    });
+
+    // customerIconUrlsが存在する場合はprimaryを、そうでなければcustomerIconUrlを使用
+    if (customerIconUrls?.primary) {
+      console.log('customerIconUrls.primaryを使用:', customerIconUrls.primary);
+      setCurrentImageUrl(customerIconUrls.primary);
+    } else {
+      console.log('customerIconUrlを使用:', customerIconUrl);
+      setCurrentImageUrl(customerIconUrl || null);
+    }
     setImageLoadAttempt(0);
-  }, [customerIconUrl]);
+  }, [customerIconUrl, customerIconUrls, customerName]);
 
   React.useEffect(() => {
     if (transcript && showInput) {

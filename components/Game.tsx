@@ -34,11 +34,12 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
     const [inBattle, setInBattle] = useState<boolean>(false);
     const [chatHistory, setChatHistory] = useState<string[]>([]);
     const [showChatHistory, setShowChatHistory] = useState<boolean>(false);
+    const [showCustomerTable, setShowCustomerTable] = useState<boolean>(false);
     const [showExitConfirm, setShowExitConfirm] = useState<boolean>(false);
     const [exitSelected, setExitSelected] = useState<number>(0);
     const [droppedMoney, setDroppedMoney] = useState<DroppedMoney[]>([]);
     const [nextCustomerId, setNextCustomerId] = useState<number>(1000);
-    const [customerData, setCustomerData] = useState<{customer_name: string, age: number}[]>([]);
+    const [customerData, setCustomerData] = useState<{id: number, customer_name: string, age: number, money?: number}[]>([]);
     const [currentMoney, setCurrentMoney] = useState<number>(0);
     const [playerId, setPlayerId] = useState<number>(1); // プレイヤーIDを追加
 
@@ -49,16 +50,50 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
         playerPositionRef.current = playerPosition;
     }, [playerPosition]);
 
+    // 初期顧客のスポーン関数
+    const spawnInitialCustomers = useCallback((initialCustomers: {id: number, customer_name: string, age: number, money?: number}[]) => {
+        const entrancePosition = { x: 18, y: 7 };
+
+        // 初期の2体を順次スポーンさせる
+        initialCustomers.forEach((customer, index) => {
+            setTimeout(() => {
+                setMovingNpcs(prev => {
+                    // 既に同じIDの顧客がいないかチェック
+                    const exists = prev.some(npc => npc.id === customer.id);
+                    if (exists) {
+                        console.log(`顧客 ${customer.customer_name} (ID: ${customer.id}) は既に店内にいます`);
+                        return prev;
+                    }
+
+                    const newCustomer: NpcData = {
+                        id: customer.id,
+                        position: { ...entrancePosition },
+                        message: ["..."],
+                        sprite: 'P',
+                        customerName: customer.customer_name,
+                        age: customer.age,
+                        money: customer.money,
+                        status: 'alive'
+                    };
+
+                    console.log(`初期顧客をスポーン: ${customer.customer_name}さん (ID: ${customer.id})`);
+                    setChatHistory(prev => [...prev, `SYSTEM: 初期来店 - ${customer.customer_name}さん (${customer.age}歳) が来店しました！`]);
+
+                    return [...prev, newCustomer];
+                });
+            }, index * 2000); // 2秒間隔でスポーン
+        });
+    }, []);
+
 
     const fetchData = async () => {
         try {
             const baseUrl = import.meta.env.VITE_APP_URL
             console.log(baseUrl)
-            // 2体のCPU分のデータを取得
-            const customerPromises = [
-                axios.get(baseUrl + `/customer`),
+            // より多くの顧客データを取得（10体分）
+            const customerPromises = Array.from({ length: 10 }, () =>
                 axios.get(baseUrl + `/customer`)
-            ];
+            );
 
             const responses = await Promise.all(customerPromises);
             console.log("全顧客データ:", responses);
@@ -66,6 +101,7 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
             const allCustomerData: {id: number, customer_name: string, age: number, money?: number}[] = [];
 
             responses.forEach((response, index) => {
+                console.log(`API応答 ${index + 1}:`, response.data);
                 if (response.data && response.data.name && response.data.age) {
                     const customerInfo = {
                         id: response.data.id,
@@ -74,7 +110,10 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                         money: response.data.money || Math.floor(Math.random() * 10000) + 1000 // APIにmoneyがない場合はランダム生成
                     };
                     allCustomerData.push(customerInfo);
+                    console.log(`顧客情報作成:`, customerInfo);
                     setChatHistory(prev => [...prev, `SYSTEM: 顧客データ${index + 1}取得 - 名前: ${response.data.name}, 年齢: ${response.data.age}, 所持金: ${customerInfo.money}円`]);
+                } else {
+                    console.log(`API応答 ${index + 1} が不完全です:`, response.data);
                 }
             });
 
@@ -85,25 +124,48 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
             setBannedCustomers(new Set()); // 出禁リストをクリア
             console.log("全顧客のステータスを生存にリセットし、出禁リストをクリアしました");
 
-            // 初期NPCに顧客データを紐付け（ステータスを生存に設定）
-            setMovingNpcs(prevNpcs => prevNpcs.map((npc, index) => {
-                if (index < allCustomerData.length) {
-                    return {
-                        ...npc,
-                        id: allCustomerData[index].id, // APIから取得したIDを使用
-                        customerName: allCustomerData[index].customer_name,
-                        age: allCustomerData[index].age,
-                        money: allCustomerData[index].money,
-                        status: 'alive' // 全顧客を生存状態に設定
-                    };
-                }
-                return { ...npc, status: 'alive' }; // 既存NPCも生存状態に
-            }));
+            // 全顧客を店外状態に設定（最初は誰も店内にいない）
+            setMovingNpcs([]);
+            console.log("全顧客を店外状態に設定しました");
+
+
 
             // チャット履歴にステータスリセットメッセージを追加
-            setChatHistory(prev => [...prev, 'SYSTEM: ゲーム開始 - 全顧客のステータスを生存にリセットしました。']);
+            setChatHistory(prev => [...prev, 'SYSTEM: ゲーム開始 - 全顧客を店外状態に設定し、2体の初期顧客が間もなく来店します。']);
         } catch (error) {
             console.error("データ取得エラー:", error);
+            console.log("フォールバックデータを使用します");
+
+            // API失敗時のフォールバックデータ（より多く設定）
+            const fallbackCustomerData = [
+                { id: 1001, customer_name: "田中太郎", age: 25, money: 5000 },
+                { id: 1002, customer_name: "佐藤花子", age: 30, money: 8000 },
+                { id: 1003, customer_name: "山田次郎", age: 22, money: 3500 },
+                { id: 1004, customer_name: "鈴木美咲", age: 28, money: 7200 },
+                { id: 1005, customer_name: "高橋一郎", age: 35, money: 6500 },
+                { id: 1006, customer_name: "中村清子", age: 24, money: 4800 },
+                { id: 1007, customer_name: "小林健一", age: 31, money: 9200 },
+                { id: 1008, customer_name: "加藤美香", age: 27, money: 5800 }
+            ];
+
+            setCustomerData(fallbackCustomerData);
+            console.log("フォールバック顧客データ設定完了:", fallbackCustomerData);
+
+            // ゲーム開始時に全顧客のステータスを生存にリセット
+            setBannedCustomers(new Set()); // 出禁リストをクリア
+            console.log("全顧客のステータスを生存にリセットし、出禁リストをクリアしました");
+
+            // 全顧客を店外状態に設定（最初は誰も店内にいない）
+            setMovingNpcs([]);
+            console.log("全顧客を店外状態に設定しました");
+
+            // 最初の2体だけスポーン処理で入店させる
+            setTimeout(() => {
+                spawnInitialCustomers(fallbackCustomerData.slice(0, 2));
+            }, 1000); // 1秒後に最初の2体をスポーン
+
+            // チャット履歴にステータスリセットメッセージを追加
+            setChatHistory(prev => [...prev, 'SYSTEM: API接続失敗 - フォールバックデータを使用しています。']);
         }
     };
 
@@ -170,6 +232,8 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
 
     const spawnNewCustomer = useCallback(() => {
         console.log("spawnNewCustomer 関数が呼び出されました");
+        console.log("現在の顧客データ:", customerData);
+        console.log("顧客データの長さ:", customerData.length);
 
         // 顧客データが読み込まれていない場合は何もしない
         if (!customerData || customerData.length === 0) {
@@ -192,11 +256,14 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
 
             // 既に店内にいる顧客のIDを取得
             const existingCustomerIds = new Set(currentMovingNpcs.map(npc => npc.id));
+            console.log("現在店内にいる顧客のID:", Array.from(existingCustomerIds));
+            console.log("出禁顧客のID:", Array.from(bannedCustomers));
 
             // 出禁でない、かつ店内にいない顧客データのみから選択
             const availableCustomers = customerData.filter(customer =>
                 !bannedCustomers.has(customer.id) && !existingCustomerIds.has(customer.id)
             );
+            console.log("スポーン可能な顧客:", availableCustomers);
 
             if (availableCustomers.length > 0) {
                 // ランダムに顧客データを選択
@@ -773,6 +840,11 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
             return;
         }
 
+        if (e.key.toLowerCase() === 'c') {
+            setShowCustomerTable(prev => !prev);
+            return;
+        }
+
         if (showExitConfirm) {
             if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                 setExitSelected(prev => prev === 0 ? 1 : 0);
@@ -914,6 +986,87 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
     return (
         <div className="relative bg-black border-4 border-gray-600 shadow-lg" style={{ width: `${MAP_WIDTH * TILE_SIZE}px`, height: `${MAP_HEIGHT * TILE_SIZE}px` }}>
             {showChatHistory && <ChatHistory history={chatHistory} />}
+            {showCustomerTable && (
+                <div className="absolute inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
+                    <div className="bg-gray-800 border-4 border-blue-400 rounded-lg p-6 text-white font-mono max-w-4xl w-full max-h-full overflow-auto">
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-2xl text-blue-400 font-bold">📊 Customer Database</h2>
+                            <button
+                                onClick={() => setShowCustomerTable(false)}
+                                className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded transition-colors"
+                            >
+                                ✕ Close
+                            </button>
+                        </div>
+
+                        <div className="mb-4 text-sm text-gray-300">
+                            <p>💡 Press 'C' key to toggle this table</p>
+                            <p>Total Customers: {customerData.length}</p>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                            <table className="w-full border-collapse border border-gray-600">
+                                <thead>
+                                    <tr className="bg-gray-700">
+                                        <th className="border border-gray-600 px-3 py-2 text-left">ID</th>
+                                        <th className="border border-gray-600 px-3 py-2 text-left">Name</th>
+                                        <th className="border border-gray-600 px-3 py-2 text-left">Age</th>
+                                        <th className="border border-gray-600 px-3 py-2 text-left">Money</th>
+                                        <th className="border border-gray-600 px-3 py-2 text-left">Status</th>
+                                        <th className="border border-gray-600 px-3 py-2 text-left">Location</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {customerData.map((customer) => {
+                                        const currentNpc = movingNpcs.find(npc => npc.id === customer.id);
+                                        const isBanned = bannedCustomers.has(customer.id);
+                                        const isInStore = !!currentNpc;
+                                        const status = isBanned ? 'Banned' : currentNpc?.status || 'Outside';
+
+                                        return (
+                                            <tr key={customer.id} className={`
+                                                ${isBanned ? 'bg-red-900 bg-opacity-50' : ''}
+                                                ${isInStore ? 'bg-green-900 bg-opacity-30' : 'bg-gray-800 bg-opacity-50'}
+                                            `}>
+                                                <td className="border border-gray-600 px-3 py-2">{customer.id}</td>
+                                                <td className="border border-gray-600 px-3 py-2">{customer.customer_name}</td>
+                                                <td className="border border-gray-600 px-3 py-2">{customer.age}歳</td>
+                                                <td className="border border-gray-600 px-3 py-2">¥{customer.money?.toLocaleString()}</td>
+                                                <td className="border border-gray-600 px-3 py-2">
+                                                    <span className={`
+                                                        ${isBanned ? 'text-red-400' : ''}
+                                                        ${status === 'alive' ? 'text-green-400' : ''}
+                                                        ${status === 'dead' ? 'text-red-400' : ''}
+                                                        ${status === 'cursed' ? 'text-purple-400' : ''}
+                                                        ${status === 'Outside' ? 'text-gray-400' : ''}
+                                                    `}>
+                                                        {isBanned ? '🚫 ' : ''}
+                                                        {status === 'alive' ? '💚 Alive' : ''}
+                                                        {status === 'dead' ? '💀 Dead' : ''}
+                                                        {status === 'cursed' ? '🌀 Cursed' : ''}
+                                                        {status === 'Outside' ? '🏠 Outside' : ''}
+                                                        {status === 'Banned' ? '🚫 Banned' : ''}
+                                                    </span>
+                                                </td>
+                                                <td className="border border-gray-600 px-3 py-2">
+                                                    {currentNpc ?
+                                                        `(${currentNpc.position.x}, ${currentNpc.position.y})` :
+                                                        'Not in store'
+                                                    }
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="mt-4 text-xs text-gray-400">
+                            <p>Legend: 💚 Alive | 💀 Dead | 🌀 Cursed | 🚫 Banned | 🏠 Outside</p>
+                        </div>
+                    </div>
+                </div>
+            )}
             <Map layout={MAP_LAYOUT} />
             {NPCS.map(npc => (<Npc key={`static-${npc.id}`} position={npc.position} sprite={npc.sprite} />))}
             {movingNpcs.map(npc => (

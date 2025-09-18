@@ -50,6 +50,8 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
         playerPositionRef.current = playerPosition;
     }, [playerPosition]);
 
+    const spawnNewCustomerRef = useRef<(() => void) | null>(null);
+
     // 初期顧客のスポーン関数
     const spawnInitialCustomers = useCallback((initialCustomers: {id: number, customer_name: string, age: number, money?: number}[]) => {
         const entrancePosition = { x: 18, y: 7 };
@@ -295,6 +297,11 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
             }
         });
     }, [playerPosition, customerData, bannedCustomers]);
+
+    // spawnNewCustomer関数のrefを更新
+    useEffect(() => {
+        spawnNewCustomerRef.current = spawnNewCustomer;
+    }, [spawnNewCustomer]);
 
     const handlePlayerAction = async () => {
         setChatHistory(prev => [...prev, `Player: ${playerInput}`]);
@@ -919,14 +926,16 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
 
         const customerSpawnTimer = setInterval(() => {
             console.log("タイマー発火: spawnNewCustomer を呼び出します");
-            spawnNewCustomer();
+            if (spawnNewCustomerRef.current) {
+                spawnNewCustomerRef.current();
+            }
         }, 12000);
 
         return () => {
             console.log("顧客スポーンタイマーをクリアします");
             clearInterval(customerSpawnTimer);
         };
-    }, [spawnNewCustomer]);
+    }, []); // 依存配列を空にしてマウント時に一度だけ実行
 
     useEffect(() => {
         const gameLoop = setInterval(() => {

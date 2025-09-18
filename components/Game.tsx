@@ -243,7 +243,9 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
     }, []);
 
     const checkAndPickupMoney = useCallback(async (pos: Position) => {
+        console.log('チェック中:', { pos, droppedMoney: droppedMoney.length });
         const money = droppedMoney.find(m => m.position.x === pos.x && m.position.y === pos.y);
+        console.log('見つかったお金:', money);
         if (money && onMoneyChange) {
             try {
                 const baseUrl = import.meta.env.VITE_APP_URL;
@@ -259,12 +261,19 @@ const Game: React.FC<GameProps> = ({ onReturnToTitle, onMoneyChange }) => {
                     }
                 });
 
-                if (response.data) {
+                if (response.status === 200) {
                     // API呼び出し成功時
+                    console.log('API成功 - お金をピックアップ:', {
+                        amount: money.amount,
+                        newTotal: newTotalMoney,
+                        response: response.data
+                    });
                     onMoneyChange(money.amount);
                     setCurrentMoney(newTotalMoney);
                     setDroppedMoney(prev => prev.filter(m => m.id !== money.id));
                     setChatHistory(prev => [...prev, `SYSTEM: ${money.amount}円を拾いました！キラキラ✨ (合計: ${newTotalMoney}円)`]);
+                } else {
+                    console.log('API失敗 - ステータスコード:', response.status);
                 }
             } catch (error) {
                 console.error("お金の更新エラー:", error);
